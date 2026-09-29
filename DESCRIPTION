@@ -1,0 +1,33 @@
+Package: budgetsc
+Type: Package
+Title: Reproducible Synthetic-Control and Bayesian Post-Estimation Pipeline for the Household Budgeting Study
+Version: 0.4.1
+Authors@R: person("Andre", "Bonfrer", role = c("aut", "cre"), email = "andre.bonfrer@deakin.edu.au")
+Description: Analysis pipeline for the digital-budgeting and financial-wellbeing
+    project. A run is described by a specification (spec) with a deterministic
+    identifier; runs read a single processed analysis panel, fit regularised
+    multi-outcome synthetic controls (augMultiSynth), estimate heterogeneous
+    treatment effects with Bayesian post-estimation (scmBayesPost), and write
+    tidy CSV tables with formatted HTML/LaTeX twins. A directory-based lock
+    protocol lets several machines on one shared filesystem work on the same
+    run. Phase 0 provides the timeline, spec, registry, lock/job layers and a
+    synthetic panel generator; model stages follow in later phases.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1)
+Imports:
+    data.table (>= 1.14),
+    digest,
+    yaml,
+    stats,
+    utils
+Suggests:
+    testthat (>= 3.0.0),
+    augMultiSynth,
+    scmBayesPost,
+    fixest,
+    gt,
+    ggplot2
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.0.0

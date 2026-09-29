@@ -1,0 +1,9 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^dev$
+^sim$
+^Runs$
+^\.github$
+^README\.md$
+^CHANGES.*\.md$
+^sim$

@@ -1,0 +1,7 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+Runs/
+*.tar.gz
+dev/scratch/

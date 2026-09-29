@@ -1,0 +1,62 @@
+# Working main specification (Phase 0 placeholder for the model stages).
+# Read with spec_read(); register with run_register().
+name: main_later_adopters
+notes: Later adopters as donors, public-launch cohort, L = 70, H = 40.
+data:
+  panel_file: Processed/analysis_panel.rds
+  first_date: '2020-01-01'
+  cutoff: '2022-12-31'
+  timeline: timeline.yml
+derive:
+  focal_spend: [Donations, Eating.out, Education, Entertainment, Groceries, Health, Home, Shopping, Transport, Travel, Utilities]
+  winsor_probs: [0.005, 0.995]
+  roll_n: 8
+  cv_basis: all
+sample:
+  design: later_adopters
+  cohort: public
+  n_lags: 70
+  n_leads: 40
+  treat_start: containing_week   # or next_week (the old Stage-2 budgetdummy convention)
+  filters: {min_pre_weeks: 8, pct_income_thresh: 0.0, n_budgets_min: 1, min_cats: 10}
+  donor_sampling: {method: none, target: ~, seed: 1}
+  subset: ~
+  placebo: ~
+sc:
+  match_outcomes: [numarrears, lengtharrears, SpendDonations, SpendEating.out, SpendEducation,
+                   SpendEntertainment, SpendGroceries, SpendHealth, SpendHome, SpendShopping,
+                   SpendTransport, SpendTravel, SpendUtilities, weekly_signins, total_transactions,
+                   total_irs_transactions, total_categories, walletshare_Supermarket,
+                   walletshare_FastFood, walletshare_Alcohol, walletshare_Tobacco,
+                   walletshare_HealthMaintenance, walletshare_Childcare, walletshare_CasinoGambling,
+                   SpendAlcohol, SpendTobacco, total_spend]
+  holdout_outcomes: [weekly_income, monthly_loan_payment_w]   # placebo / balance only, never matched
+  match_end: 0
+  max_donors: 1000
+  screen_outcome: total_spend
+  screen_method: mse
+  standardize_outcomes: yes
+  intercept: outcome
+  solver: fw
+  lambda: 0.001
+  nu_scale: 0.1
+  verbose: no
+  eps_sd: 0.01
+  parallel: yes
+post:
+  outcomes: [numarrears, lengtharrears, liquidity_deficit_rate, income_share]
+  f_Z: budgetdummy ~ budgetcategoriesN + factor(frequency) + age + income_mean + customer_tenure + gender + income_cv + cv_2020_spend + I(homeloan_mean/income_mean) + numgoalcats + br_under + br_target + br_over
+  first_stage: none
+  instruments: ~
+  gibbs: {n_iter: 2000, burn_in: 1000, seed: 1}
+  priors: {Sigma_gamma_prior: 1000.0, a_sigma_tau_prior: 5.0, b_sigma_tau_prior: 1.0}
+  thin: 1
+  save_beta: yes
+  verbose: no
+tables:
+  families:
+    fwb: [numarrears, lengtharrears, liquidity_deficit_rate, income_share]
+    levels: []
+    shares: []
+  formats: [csv, html, tex]
+  digits: 3
