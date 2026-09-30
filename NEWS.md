@@ -1,3 +1,12 @@
+# budgetsc 0.4.2
+
+* `build_analysis_panel()`: the tier-A build step (processed panel + weekly
+  salary income + weekly balances -> `Processed/analysis_panel.rds`), the only
+  function that reads `data/`. Income is assigned to the containing week with
+  `week_of()`; the original `post_reg` merge omitted the `+ 1` and placed each
+  week's income one row early (`week_alignment = "legacy_shift"` reproduces
+  it for comparison). A `build_info` attribute records inputs, MD5s and counts.
+
 # budgetsc 0.4.1
 
 * `derive_outcomes()`: rolling-window calls pass the window positionally, so
