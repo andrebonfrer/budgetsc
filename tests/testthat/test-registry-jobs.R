@@ -29,6 +29,7 @@ test_that("registering a run creates the directory, spec files and registry row"
 test_that("job table and worker process pending outcomes exactly once", {
   with_root({
     run <- run_register(spec_main("post.outcomes" = c("y1", "y2", "y3")))
+    saveRDS(1, file.path(run$dir, "sc_fit.rds")); saveRDS(1, file.path(run$dir, "panel.rds"))
     jt <- job_table(run, "post")
     expect_equal(jt$state, rep("pending", 3))
     calls <- new.env(); calls$n <- 0L
@@ -55,6 +56,7 @@ test_that("job table and worker process pending outcomes exactly once", {
 test_that("a failing job is logged, not fatal, and stays pending", {
   with_root({
     run <- run_register(spec_main("post.outcomes" = c("bad", "good")))
+    saveRDS(1, file.path(run$dir, "sc_fit.rds")); saveRDS(1, file.path(run$dir, "panel.rds"))
     f <- function(run, job, lock) {
       if (job == "bad") stop("sampler exploded")
       saveRDS(1, file.path(run$dir, "post", paste0(job, ".rds")))
@@ -76,5 +78,33 @@ test_that("run_clean removes intermediates but not the registry", {
     rm <- run_clean(run)
     expect_equal(length(rm), 2L)
     expect_equal(nrow(registry_read()), 1L)
+  })
+})
+
+
+test_that("post jobs are blocked until the SC stage has written its files", {
+  with_root({
+    run <- run_register(spec_main("post.outcomes" = c("y1", "y2")))
+    expect_equal(job_table(run, "post")$state, rep("blocked", 2))
+    expect_null(job_claim(run, "post", "y1"))
+    # a worker serving only "post" does nothing for this run
+    out <- worker(function(run, job, lock) stop("should not run"), stages = "post", once = TRUE)
+    expect_equal(nrow(out), 0L)
+    saveRDS(1, file.path(run$dir, "sc_fit.rds")); saveRDS(1, file.path(run$dir, "panel.rds"))
+    expect_equal(job_table(run, "post")$state, rep("pending", 2))
+    expect_s3_class(job_claim(run, "post", "y1"), "bsc_lock")
+  })
+})
+
+test_that("job_reset_failed makes failed jobs pending again", {
+  with_root({
+    run <- run_register(spec_main("post.outcomes" = c("bad", "good")))
+    saveRDS(1, file.path(run$dir, "sc_fit.rds")); saveRDS(1, file.path(run$dir, "panel.rds"))
+    f <- function(run, job, lock) { if (job == "bad") stop("boom"); saveRDS(1, file.path(run$dir, "post", paste0(job, ".rds"))) }
+    worker(f, once = TRUE)
+    expect_equal(job_table(run, "post")[job == "bad", state], "failed")
+    expect_equal(run_status()$post_failed, 1L)
+    job_reset_failed(run)
+    expect_equal(job_table(run, "post")[job == "bad", state], "pending")
   })
 })

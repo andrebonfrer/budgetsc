@@ -164,7 +164,8 @@ run_status <- function(root = NULL, stale_after = 3 * 3600) {
       post_done    = if (is.null(jobs)) NA_integer_ else sum(jobs$state == "done"),
       post_running = if (is.null(jobs)) NA_integer_ else sum(jobs$state == "running"),
       post_stale   = if (is.null(jobs)) NA_integer_ else sum(jobs$state == "stale"),
-      post_pending = if (is.null(jobs)) NA_integer_ else sum(jobs$state == "pending"),
+      post_failed  = if (is.null(jobs)) NA_integer_ else sum(jobs$state == "failed"),
+      post_pending = if (is.null(jobs)) NA_integer_ else sum(jobs$state %in% c("pending", "blocked")),
       summary = stage_done(run, "summary")
     )
   })

@@ -1,3 +1,14 @@
+# budgetsc 0.4.3
+
+* Post-estimation jobs are `blocked` (not claimable) until the run's SC stage
+  has written `sc_fit.rds` and `panel.rds`. Previously a second machine could
+  claim an outcome while the first was still fitting the synthetic control and
+  fail with "cannot open connection".
+* `job_reset_failed(run)` clears `.failed` markers after the cause is fixed;
+  `run_status()` gains a `post_failed` column.
+* `worker.R` serves `sc,post` by default (or `BUDGETSC_STAGES`), attaches
+  Matrix, and prints host/root/stages on start.
+
 # budgetsc 0.4.2
 
 * `build_analysis_panel()`: the tier-A build step (processed panel + weekly

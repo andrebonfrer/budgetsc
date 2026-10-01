@@ -40,7 +40,8 @@
 #'
 #' States: `done` (result file exists), `running` (a fresh lock is held),
 #' `stale` (lock older than `stale_after`), `failed` (last attempt errored;
-#' see the `.failed` marker and `run.log`), `pending` (nothing yet).
+#' see the `.failed` marker and `run.log`), `blocked` (a post job whose run
+#' has no `sc_fit.rds`/`panel.rds` yet), `pending` (ready to claim).
 #' @param run A `bsc_run`.
 #' @param stage `"sc"` or `"post"`.
 #' @param stale_after Seconds; see [lock_is_stale()].
@@ -49,13 +50,15 @@
 job_table <- function(run, stage = "post", stale_after = 3 * 3600) {
   jd <- .job_dir(run, stage)
   jobs <- .job_names(run, stage)
+  # post jobs need the SC stage's outputs; until they exist the job is "blocked"
+  blocked <- stage == "post" && !(file.exists(file.path(run$dir, "sc_fit.rds")) && file.exists(file.path(run$dir, "panel.rds")))
   rows <- lapply(jobs, function(j) {
     done <- file.exists(.job_result_file(run, stage, j))
     failed <- file.exists(.job_failed_file(run, stage, j))
     info <- lock_info(jd, j)
     state <- if (done) "done" else if (!is.null(info)) {
       if (info$age_secs > stale_after) "stale" else "running"
-    } else if (failed) "failed" else "pending"
+    } else if (failed) "failed" else if (blocked) "blocked" else "pending"
     data.table::data.table(stage = stage, job = j, state = state,
                            owner = if (is.null(info)) NA_character_ else info$owner,
                            age_secs = if (is.null(info)) NA_real_ else info$age_secs)
@@ -73,6 +76,8 @@ job_table <- function(run, stage = "post", stale_after = 3 * 3600) {
 #' @export
 job_claim <- function(run, stage, job, stale_after = 3 * 3600) {
   if (file.exists(.job_result_file(run, stage, job))) return(NULL)
+  if (stage == "post" && !(file.exists(file.path(run$dir, "sc_fit.rds")) && file.exists(file.path(run$dir, "panel.rds"))))
+    return(NULL)                                   # SC stage not finished: not claimable
   lock_acquire(.job_dir(run, stage), job, stale_after = stale_after,
                note = paste0(run$id, "/", stage, "/", job))
 }
@@ -166,4 +171,25 @@ worker <- function(fun, root = NULL, stages = "post", runs = NULL,
   invisible(if (length(done)) data.table::rbindlist(done) else
               data.table::data.table(run_id = character(0), stage = character(0),
                                      job = character(0), ok = logical(0)))
+}
+
+
+#' Clear failed-job markers so the jobs become pending again
+#'
+#' Use after fixing the cause of a failure (see `run.log`). Removes
+#' `post/<outcome>.failed` (and `sc_fit.failed`) for the run; result files are
+#' never touched.
+#' @param run A `bsc_run`.
+#' @param jobs Character; default all failed jobs of the run.
+#' @return Invisibly, the markers removed.
+#' @export
+job_reset_failed <- function(run, jobs = NULL) {
+  jt <- rbind(job_table(run, "sc"), job_table(run, "post"))
+  jt <- jt[state == "failed"]
+  if (!is.null(jobs)) jt <- jt[job %in% jobs]
+  files <- mapply(function(st, j) .job_failed_file(run, st, j), jt$stage, jt$job)
+  files <- files[file.exists(files)]
+  unlink(files)
+  if (length(files)) bsc_log(run, "reset failed: ", paste(jt$job, collapse = ", "))
+  invisible(files)
 }

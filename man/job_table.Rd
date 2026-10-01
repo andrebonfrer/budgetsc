@@ -19,5 +19,6 @@ data.table with \code{stage}, \code{job}, \code{state}, \code{owner}, \code{age_
 \description{
 States: \code{done} (result file exists), \code{running} (a fresh lock is held),
 \code{stale} (lock older than \code{stale_after}), \code{failed} (last attempt errored;
-see the \code{.failed} marker and \code{run.log}), \code{pending} (nothing yet).
+see the \code{.failed} marker and \code{run.log}), \code{blocked} (a post job whose run
+has no \code{sc_fit.rds}/\code{panel.rds} yet), \code{pending} (ready to claim).
 }
