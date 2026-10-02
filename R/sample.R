@@ -90,6 +90,12 @@ define_sample <- function(p, spec) {
       as.integer(ts == "next_week" & format(minBudgetDate, "%u") != "1")]
   x[, budgetdummy := 0L]
   x[!is.na(treat_wID), budgetdummy := as.integer(wID >= treat_wID)]
+  n_don <- x[donor > 0L, data.table::uniqueN(customer_id)]
+  if (n_don == 0L)
+    stop(sprintf(paste("design '%s' found no donors in the panel (donor codes present: %s).",
+                       "The onboarder designs need a panel built from the matching BudgetPanelDataWeekly_with_donor* file;",
+                       "see build_analysis_panel(panel_file = c(<donor1>, <donor2>))."),
+                 design, paste(sort(unique(p$donor)), collapse = ", ")), call. = FALSE)
 
   # ---- filters (pre_summ / breadth from the scripts) -------------------------------
   f <- s$filters

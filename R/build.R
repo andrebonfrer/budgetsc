@@ -12,7 +12,12 @@
 #' `week_alignment = "containing"` uses [week_of()] for both sides;
 #' `"legacy_shift"` reproduces the script's behaviour for comparison.
 #'
-#' @param panel_file Processed weekly panel (`BudgetPanelDataWeekly_with_donor*.rds`).
+#' @param panel_file Processed weekly panel(s) (`BudgetPanelDataWeekly_with_donor*.rds`).
+#'   With several files, each file's non-zero `donor` flag is recoded to the
+#'   matching entry of `donor_codes` (default 1, 2, ...), so the donor-1 and
+#'   donor-2 files give one panel with codes 0 = budget setter, 1 = partial
+#'   onboarder, 2 = never-onboarder. Customers in several files are kept once.
+#' @param donor_codes Integer vector, one per `panel_file`.
 #' @param income_file Salary transactions with `customer_id`, `payt_d` (date),
 #'   `payt_a` (amount). Default `data/commincome_fncl_tran_slry.rds`.
 #' @param balance_file Weekly balances with `customer_id`, `wID`, `weekly_balance`.
@@ -27,6 +32,7 @@
 #'   `build_info` attribute (inputs, MD5s, alignment, row counts).
 #' @export
 build_analysis_panel <- function(panel_file, income_file = "data/commincome_fncl_tran_slry.rds",
+                                 donor_codes = seq_along(panel_file),
                                  balance_file = "Processed/weekly_balances_without_homeloans.rds",
                                  out_file = "Processed/analysis_panel.rds",
                                  week_alignment = c("containing", "legacy_shift"),
@@ -35,7 +41,22 @@ build_analysis_panel <- function(panel_file, income_file = "data/commincome_fncl
   rp <- function(f) if (grepl("^(/|[A-Za-z]:)", f)) f else file.path(bsc_root(root), f)
   tl <- bsc_timeline()
 
-  p <- data.table::as.data.table(readRDS(rp(panel_file)))
+  # one or several processed panels (e.g. the donor-1 and donor-2 files): stack
+  # them, recode each file's non-zero donor flag to `donor_codes[i]`, and keep
+  # the first occurrence of a customer that appears in more than one file
+  # (budget setters are in every file).
+  parts <- lapply(seq_along(panel_file), function(i) {
+    d <- data.table::as.data.table(readRDS(rp(panel_file[i])))
+    if (!"donor" %in% names(d)) d[, donor := 0L]
+    d[, donor := as.integer(donor)]
+    if (length(panel_file) > 1L) d[donor > 0L, donor := as.integer(donor_codes[i])]
+    d
+  })
+  if (length(parts) > 1L) {
+    seen <- integer(0)
+    for (i in seq_along(parts)) { parts[[i]] <- parts[[i]][!customer_id %in% seen]; seen <- c(seen, unique(parts[[i]]$customer_id)) }
+  }
+  p <- data.table::rbindlist(parts, use.names = TRUE, fill = TRUE)
   p[, week_start := as.Date(week_start)]
   p <- p[week_start >= tl$events$panel_first_date & week_start <= tl$events$panel_cutoff]
   if (min(p$week_start) != tl$origin)
@@ -66,7 +87,9 @@ build_analysis_panel <- function(panel_file, income_file = "data/commincome_fncl
 
   info <- list(built = Sys.time(), host = host_id(), week_alignment = week_alignment,
                balance_wID_offset = balance_wID_offset,
-               inputs = c(panel = rp(panel_file), income = rp(income_file), balance = rp(balance_file)),
+               inputs = c(panel = paste(rp(panel_file), collapse = ";"), income = rp(income_file), balance = rp(balance_file)),
+               donor_codes = stats::setNames(donor_codes, basename(panel_file)),
+               donor_counts = p[, .(n = data.table::uniqueN(customer_id)), by = donor][order(donor)],
                input_md5 = vapply(c(rp(panel_file), rp(income_file), rp(balance_file)),
                                   function(f) tools::md5sum(f)[[1]], character(1)),
                n_rows = nrow(p), n_customers = data.table::uniqueN(p$customer_id),
@@ -75,9 +98,10 @@ build_analysis_panel <- function(panel_file, income_file = "data/commincome_fncl
   data.table::setattr(p, "build_info", info)
   out <- rp(out_file); dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
   saveRDS(p, out)
-  message(sprintf("analysis panel: %d rows, %d customers, weeks %d-%d, income in %.1f%% of weeks, %d balance rows filled with 0 -> %s",
-                  info$n_rows, info$n_customers, info$weeks[1], info$weeks[2],
-                  100 * info$share_income_weeks, n_bal_na, out))
+  message(sprintf("analysis panel: %d rows, %d customers (donor codes %s), weeks %d-%d, income in %.1f%% of weeks, %d balance rows filled with 0 -> %s",
+                  info$n_rows, info$n_customers,
+                  paste(sprintf("%d: %d", info$donor_counts$donor, info$donor_counts$n), collapse = ", "),
+                  info$weeks[1], info$weeks[2], 100 * info$share_income_weeks, n_bal_na, out))
   invisible(p)
 }
 

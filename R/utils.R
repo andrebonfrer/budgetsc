@@ -26,10 +26,15 @@ winsorise <- function(x, probs = c(0.01, 0.99), na.rm = TRUE) {
 #' Identify the machine running this session
 #'
 #' Used in lock owner files and logs so that a stale lock can be traced to a
-#' host and process.
-#' @return Character scalar `"<hostname>:<pid>"`.
+#' host and process. The host part is the environment variable
+#' `BUDGETSC_HOST_LABEL` when set (e.g. `vm1` in that machine's `~/.Renviron`),
+#' otherwise the system nodename.
+#' @return Character scalar `"<label-or-hostname>:<pid>"`.
 #' @export
-host_id <- function() paste0(Sys.info()[["nodename"]], ":", Sys.getpid())
+host_id <- function() {
+  lab <- Sys.getenv("BUDGETSC_HOST_LABEL", unset = "")
+  paste0(if (nzchar(lab)) lab else Sys.info()[["nodename"]], ":", Sys.getpid())
+}
 
 #' Append a timestamped line to a run's log
 #'

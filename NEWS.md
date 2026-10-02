@@ -1,3 +1,15 @@
+# budgetsc 0.4.4
+
+* `build_analysis_panel()` accepts several processed panels and stacks them
+  with per-file donor codes (donor-1 file -> 1, donor-2 file -> 2), keeping
+  budget setters once, so one analysis panel serves every design.
+* `define_sample()` stops with a clear message when a design's donor pool is
+  empty (previously surfaced as "subscript out of bounds" inside augMultiSynth).
+* `host_id()` uses `BUDGETSC_HOST_LABEL` when set, so lock owners and log
+  lines show a chosen machine name instead of the SageMaker nodename.
+* `job_reset_failed()` logs "cleared failed markers: ..." instead of
+  "reset failed: ...".
+
 # budgetsc 0.4.3
 
 * Post-estimation jobs are `blocked` (not claimable) until the run's SC stage

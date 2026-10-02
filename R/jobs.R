@@ -190,6 +190,6 @@ job_reset_failed <- function(run, jobs = NULL) {
   files <- mapply(function(st, j) .job_failed_file(run, st, j), jt$stage, jt$job)
   files <- files[file.exists(files)]
   unlink(files)
-  if (length(files)) bsc_log(run, "reset failed: ", paste(jt$job, collapse = ", "))
+  if (length(files)) bsc_log(run, "cleared failed markers: ", paste(jt$job, collapse = ", "))
   invisible(files)
 }

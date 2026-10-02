@@ -7,9 +7,11 @@
 host_id()
 }
 \value{
-Character scalar \code{"<hostname>:<pid>"}.
+Character scalar \code{"<label-or-hostname>:<pid>"}.
 }
 \description{
 Used in lock owner files and logs so that a stale lock can be traced to a
-host and process.
+host and process. The host part is the environment variable
+\code{BUDGETSC_HOST_LABEL} when set (e.g. \code{vm1} in that machine's \verb{~/.Renviron}),
+otherwise the system nodename.
 }

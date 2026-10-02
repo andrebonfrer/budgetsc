@@ -7,6 +7,7 @@
 build_analysis_panel(
   panel_file,
   income_file = "data/commincome_fncl_tran_slry.rds",
+  donor_codes = seq_along(panel_file),
   balance_file = "Processed/weekly_balances_without_homeloans.rds",
   out_file = "Processed/analysis_panel.rds",
   week_alignment = c("containing", "legacy_shift"),
@@ -15,10 +16,16 @@ build_analysis_panel(
 )
 }
 \arguments{
-\item{panel_file}{Processed weekly panel (\code{BudgetPanelDataWeekly_with_donor*.rds}).}
+\item{panel_file}{Processed weekly panel(s) (\code{BudgetPanelDataWeekly_with_donor*.rds}).
+With several files, each file's non-zero \code{donor} flag is recoded to the
+matching entry of \code{donor_codes} (default 1, 2, ...), so the donor-1 and
+donor-2 files give one panel with codes 0 = budget setter, 1 = partial
+onboarder, 2 = never-onboarder. Customers in several files are kept once.}
 
 \item{income_file}{Salary transactions with \code{customer_id}, \code{payt_d} (date),
 \code{payt_a} (amount). Default \code{data/commincome_fncl_tran_slry.rds}.}
+
+\item{donor_codes}{Integer vector, one per \code{panel_file}.}
 
 \item{balance_file}{Weekly balances with \code{customer_id}, \code{wID}, \code{weekly_balance}.
 Default \code{Processed/weekly_balances_without_homeloans.rds}. Its \code{wID} is
