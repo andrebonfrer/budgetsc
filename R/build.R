@@ -38,7 +38,7 @@ build_analysis_panel <- function(panel_file, income_file = "data/commincome_fncl
                                  week_alignment = c("containing", "legacy_shift"),
                                  balance_wID_offset = 0L, root = NULL) {
   week_alignment <- match.arg(week_alignment)
-  rp <- function(f) if (grepl("^(/|[A-Za-z]:)", f)) f else file.path(bsc_root(root), f)
+  rp <- function(f) ifelse(grepl("^(/|[A-Za-z]:)", f), f, file.path(bsc_root(root), f))   # vectorised: several panel files
   tl <- bsc_timeline()
 
   # one or several processed panels (e.g. the donor-1 and donor-2 files): stack

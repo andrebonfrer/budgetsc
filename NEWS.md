@@ -1,3 +1,8 @@
+# budgetsc 0.4.5
+
+* Fix: `build_analysis_panel()` with several panel files failed on path
+  resolution (non-vectorised helper); caught by the new multi-file test.
+
 # budgetsc 0.4.4
 
 * `build_analysis_panel()` accepts several processed panels and stacks them
