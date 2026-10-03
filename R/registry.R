@@ -124,6 +124,8 @@ run_load <- function(x, root = NULL) {
 #'   returns the run invisibly.
 #' @export
 stage_done <- function(run, stage) {
+  if (stage == "sc") return(file.exists(file.path(run$dir, "sc_fit.rds")))     # the result file, not a marker
+  if (stage == "sample") return(file.exists(file.path(run$dir, "sample.rds")) && file.exists(file.path(run$dir, "panel.rds")))
   if (stage == "post") {
     files <- file.path(run$dir, "post", paste0(run$spec$post$outcomes, ".rds"))
     return(length(files) > 0L && all(file.exists(files)))

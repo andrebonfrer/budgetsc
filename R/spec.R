@@ -142,8 +142,11 @@ spec_lean <- function(...) {
 #' `spec_placebo_shift()` moves every adopter's onset `shift` weeks earlier
 #' (default `n_leads + 1`, so the placebo post window ends before real
 #' adoption); `spec_placebo_never()` gives never-onboarders pseudo onsets drawn
-#' from the real adopters' onset dates. Both default to `n_lags = 23` because a
-#' placebo window needs L pre-weeks before the shifted onset.
+#' from the real adopters' onset dates; the remaining never-onboarders are the
+#' donors and the moderator formula is reduced to customer characteristics
+#' (pseudo-treated units have no budget configuration). `spec_placebo_shift()`
+#' defaults to `n_lags = 23` because a placebo window needs L pre-weeks before
+#' the shifted onset.
 #' @param base A `bsc_spec` to derive from. Default [spec_main()].
 #' @param shift Integer weeks to move onsets earlier.
 #' @param n Number of pseudo-treated never-onboarders.
@@ -168,6 +171,8 @@ spec_placebo_never <- function(base = spec_main(), n = NULL, seed = 1L, ...) {
   s$name <- paste0(base$name, "_placebo_never")
   s$sample$placebo <- list(base_design = base$sample$design, units = "never_onboarders", n = n, seed = seed)
   s$sample$design <- "placebo_dates"
+  # pseudo-treated units have no budget configuration: customer-level moderators only
+  s$post$f_Z <- "budgetdummy ~ age + income_mean + customer_tenure + gender + income_cv + cv_2020_spend + I(homeloan_mean/income_mean)"
   spec_modify(s, ...)
 }
 

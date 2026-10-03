@@ -122,5 +122,5 @@ fit_post <- function(run, outcomes = NULL, backend = NULL) {
 #' @return A function `(run, job, lock)`.
 #' @export
 job_fun_default <- function() function(run, job, lock) {
-  if (job == "sc_fit") { run_sample(run); fit_sc(run); sc_diagnostics(run) } else fit_post_one(run, job, lock)
+  if (job == "sc_fit") { run_sample(run); fit_sc(run); sc_diagnostics(run); mark_done(run, "sc") } else fit_post_one(run, job, lock)
 }

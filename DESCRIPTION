@@ -1,7 +1,7 @@
 Package: budgetsc
 Type: Package
 Title: Reproducible Synthetic-Control and Bayesian Post-Estimation Pipeline for the Household Budgeting Study
-Version: 0.4.5
+Version: 0.4.6
 Authors@R: person("Andre", "Bonfrer", role = c("aut", "cre"), email = "andre.bonfrer@deakin.edu.au")
 Description: Analysis pipeline for the digital-budgeting and financial-wellbeing
     project. A run is described by a specification (spec) with a deterministic
@@ -30,4 +30,4 @@ Suggests:
     ggplot2
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2

@@ -110,8 +110,12 @@ define_sample <- function(p, spec) {
   keep <- pre[pre_weeks >= f$min_pre_weeks & !is.na(pre_spend_pct_income) &
                 pre_spend_pct_income >= f$pct_income_thresh, customer_id]
   x <- x[customer_id %in% keep]; note(sprintf("pre_weeks >= %d & spend/income >= %s", f$min_pre_weeks, f$pct_income_thresh), x$customer_id)
-  keep <- pre[donor > 0L | (!is.na(budgetcategoriesN) & budgetcategoriesN >= f$n_budgets_min), customer_id]
-  x <- x[customer_id %in% keep]; note(sprintf("treated have >= %d budget categories", f$n_budgets_min), x$customer_id)
+  if (identical(placebo_info$units, "never_onboarders")) {
+    note("budget-category filter skipped (pseudo-treated never set a budget)", x$customer_id)
+  } else {
+    keep <- pre[donor > 0L | (!is.na(budgetcategoriesN) & budgetcategoriesN >= f$n_budgets_min), customer_id]
+    x <- x[customer_id %in% keep]; note(sprintf("treated have >= %d budget categories", f$n_budgets_min), x$customer_id)
+  }
   spend_cols <- grep("^Spend", names(x), value = TRUE)
   breadth <- x[wID < launch_wID, .(n_cats = sum(vapply(.SD, function(v) any(!is.na(v) & v > 0), logical(1)))),
                by = customer_id, .SDcols = spend_cols]
@@ -184,8 +188,13 @@ define_sample <- function(p, spec) {
                                      pseudo = sample(real$minBudgetDate, n_take, replace = TRUE))
     x <- x[!customer_id %in% real$customer_id]                 # drop real adopters
     x[pseudo, on = "customer_id", `:=`(minBudgetDate = i.pseudo, donor = 0L)]
-    x[donor == 2L, donor := 1L]                                # remaining never-onboarders are donors
-    info <- list(units = units, n = n_take, seed = pl$seed %||% 1L)
+    # remaining never-onboarders become the donors: coded as budget setters with
+    # an onset far beyond the window, so the base design's later-adopter rule
+    # (onset >= launch + H -> donor) applies to them unchanged
+    far <- max(real$minBudgetDate, na.rm = TRUE) + 7L * (H + 2L)
+    x[donor == 2L, `:=`(minBudgetDate = far, donor = 0L)]
+    x <- x[donor == 0L]                                        # partial onboarders play no part
+    info <- list(units = units, n = n_take, seed = pl$seed %||% 1L, far_onset = far)
   } else stop("sample.placebo$units must be 'treated' or 'never_onboarders'", call. = FALSE)
   data.table::setattr(x, "placebo_info", info)
   x

@@ -27,6 +27,9 @@ A \code{bsc_spec}.
 \code{spec_placebo_shift()} moves every adopter's onset \code{shift} weeks earlier
 (default \code{n_leads + 1}, so the placebo post window ends before real
 adoption); \code{spec_placebo_never()} gives never-onboarders pseudo onsets drawn
-from the real adopters' onset dates. Both default to \code{n_lags = 23} because a
-placebo window needs L pre-weeks before the shifted onset.
+from the real adopters' onset dates; the remaining never-onboarders are the
+donors and the moderator formula is reduced to customer characteristics
+(pseudo-treated units have no budget configuration). \code{spec_placebo_shift()}
+defaults to \code{n_lags = 23} because a placebo window needs L pre-weeks before
+the shifted onset.
 }

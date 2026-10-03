@@ -39,6 +39,14 @@ test_that("placebo on never-onboarders assigns pseudo onsets from real adopters"
   expect_true(all(smp$ids[role == "treated", treat_wID] %in% cu[role == "treated", adopt_wID]))
   expect_lte(sum(smp$ids$role == "treated"), 30L)
   expect_equal(smp$placebo$units, "never_onboarders")
+  # donors are the remaining never-onboarders; pseudo-treated survive the budget-category filter
+  expect_true(all(smp$ids[role == "donor", customer_id] %in% cu[role == "never", customer_id]))
+  expect_gt(sum(smp$ids$role == "donor"), 0L)
+  expect_gt(sum(smp$ids$role == "treated"), 0L)
+  expect_true(any(grepl("budget-category filter skipped", smp$funnel$step)))
+  # and the whole pipeline runs with the stub backends
+  run <- run_pipeline(spec_modify(spec, "post.outcomes" = "numarrears"))
+  expect_true(stage_done(run, "post"))
 })
 
 test_that("distress hook in run_sample and subset selection work", {

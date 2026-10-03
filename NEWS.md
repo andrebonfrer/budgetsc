@@ -1,3 +1,16 @@
+# budgetsc 0.4.6
+
+* Fix `placebo_dates` with `units = "never_onboarders"`: pseudo-treated units
+  were removed by the budget-category filter (never-onboarders have no
+  configuration) and the remaining never-onboarders were not usable as donors.
+  The filter is now skipped for them, the rest of the pool becomes the donors,
+  and `spec_placebo_never()` uses a customer-characteristics-only moderator
+  formula.
+* `run_status()`: the `sc` and `sample` columns now test for the stage's
+  result files (`sc_fit.rds`; `sample.rds` + `panel.rds`) rather than marker
+  files, so runs completed by workers no longer show `-`; the worker job
+  function also writes the marker.
+
 # budgetsc 0.4.5
 
 * Fix: `build_analysis_panel()` with several panel files failed on path
