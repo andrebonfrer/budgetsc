@@ -3,15 +3,16 @@ Type: Package
 Title: Reproducible Synthetic-Control and Bayesian Post-Estimation Pipeline for the Household Budgeting Study
 Version: 0.4.7
 Authors@R: person("Andre", "Bonfrer", role = c("aut", "cre"), email = "andre.bonfrer@deakin.edu.au")
-Description: Analysis pipeline for the digital-budgeting and financial-wellbeing
+Description: Description: Analysis pipeline for the digital-budgeting and financial-wellbeing
     project. A run is described by a specification (spec) with a deterministic
-    identifier; runs read a single processed analysis panel, fit regularised
-    multi-outcome synthetic controls (augMultiSynth), estimate heterogeneous
-    treatment effects with Bayesian post-estimation (scmBayesPost), and write
-    tidy CSV tables with formatted HTML/LaTeX twins. A directory-based lock
-    protocol lets several machines on one shared filesystem work on the same
-    run. Phase 0 provides the timeline, spec, registry, lock/job layers and a
-    synthetic panel generator; model stages follow in later phases.
+    identifier; runs read a processed analysis panel, build the sample for a
+    chosen design (later adopters, onboarder donor pools, placebo dates,
+    distress subsets), fit regularised multi-outcome synthetic controls
+    (augMultiSynth), estimate heterogeneous treatment effects with Bayesian
+    post-estimation (scmBayesPost), and write tidy CSV tables with HTML/LaTeX
+    twins plus diagnostics (pre-trend fit, held-out gaps, placebo outcomes).
+    A directory-based lock protocol lets several machines on one shared
+    filesystem work through registered runs without a scheduler.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Depends: R (>= 4.1)
@@ -30,4 +31,4 @@ Suggests:
     ggplot2
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.1
+Config/roxygen2/version: 8.0.0
