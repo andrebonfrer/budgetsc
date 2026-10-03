@@ -193,3 +193,29 @@ job_reset_failed <- function(run, jobs = NULL) {
   if (length(files)) bsc_log(run, "cleared failed markers: ", paste(jt$job, collapse = ", "))
   invisible(files)
 }
+
+
+#' Release locks held by dead workers
+#'
+#' Removes a job's lock directory so the job returns to `pending`. Use for
+#' locks whose worker process died without releasing them (reported as
+#' `running` with a growing age, or `stale`). Only `running`/`stale` locks are
+#' touched; result files are never.
+#' @param run A `bsc_run`.
+#' @param jobs Character; job names (outcomes, or `"sc_fit"`). Default: all
+#'   `stale` jobs of the run.
+#' @param include_running Logical; also release `running` locks (use when you
+#'   know the owner process is dead). Default FALSE.
+#' @return Invisibly, the lock paths removed.
+#' @export
+job_release_locks <- function(run, jobs = NULL, include_running = FALSE) {
+  jt <- rbind(job_table(run, "sc"), job_table(run, "post"))
+  states <- c("stale", if (include_running) "running")
+  jt <- jt[state %in% states]
+  if (!is.null(jobs)) jt <- jt[job %in% jobs]
+  paths <- mapply(function(st, j) lock_path(.job_dir(run, st), j), jt$stage, jt$job)
+  paths <- paths[dir.exists(paths)]
+  unlink(paths, recursive = TRUE)
+  if (length(paths)) bsc_log(run, "locks released manually: ", paste(jt$job, collapse = ", "))
+  invisible(paths)
+}

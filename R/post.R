@@ -47,13 +47,21 @@ post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
   if (!requireNamespace("scmBayesPost", quietly = TRUE))
     stop("scmBayesPost is not installed; use spec$post$backend = 'stub' for a dry run.", call. = FALSE)
   W <- scmBayesPost::build_W_from_augMultiSynth(scfit$fit, id_universe = unique(p$customer_id), self_weight = 1)
-  gdata <- scmBayesPost::prepare_data_general(
+  args <- list(
     dta = p, W = W, y_name = outcome,
     f.X = stats::reformulate(c("1", "budgetdummy"), response = outcome),
     f.Z = stats::as.formula(spec$post$f_Z),
     id_col = "customer_id", time_col = "wID", tr_col = "budgetdummy",
     treat_type = "binary", second_stage = "moderators",
     first_stage = spec$post$first_stage, verbose = isTRUE(spec$post$verbose))
+  # weight floor (post.w_min): passed only when the installed scmBayesPost supports it
+  w_min <- spec$post$w_min %||% 0
+  if (w_min > 0) {
+    if (!"w_min" %in% names(formals(scmBayesPost::prepare_data_general)))
+      stop("post.w_min > 0 needs scmBayesPost with the w_min argument (prepare_data_wmin patch).", call. = FALSE)
+    args$w_min <- w_min
+  }
+  gdata <- do.call(scmBayesPost::prepare_data_general, args)
   Z <- gdata$Z_block
   is_dummy <- apply(Z, 2, function(x) all(stats::na.omit(unique(x)) %in% c(0, 1)))
   sc_cols <- !(is_dummy | colnames(Z) == "Intercept")

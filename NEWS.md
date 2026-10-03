@@ -1,3 +1,12 @@
+# budgetsc 0.4.7
+
+* `post.w_min` (default 0): weight floor passed to `scmBayesPost::prepare_data_general()`
+  (patched version) so each treated unit's pseudo-panel holds only donors above
+  the floor, renormalised. At 1e-3 the pseudo-panels shrink ~8-30x with unit
+  effects correlated 0.9999 with the exact version on simulated data. Needed for
+  the 4,000-donor onboarder pools, whose post stage otherwise exceeds 64 GB.
+* `job_release_locks(run)` removes locks left by dead workers; `lock_path()` exported.
+
 # budgetsc 0.4.6
 
 * Fix `placebo_dates` with `units = "never_onboarders"`: pseudo-treated units

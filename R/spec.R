@@ -74,7 +74,8 @@ spec_default <- function() {
       priors      = list(Sigma_gamma_prior = 1000, a_sigma_tau_prior = 5, b_sigma_tau_prior = 1),
       thin        = 1L,
       save_beta   = TRUE,
-      verbose     = FALSE
+      verbose     = FALSE,
+      w_min       = 0
     ),
     tables = list(
       families = list(
@@ -245,6 +246,8 @@ spec_validate <- function(spec) {
   chk_int("sc.match_end", 0L)
   chk_int("post.gibbs.n_iter", 1L)
   chk_int("post.gibbs.burn_in", 0L)
+  wm <- .get_dotted(spec, "post.w_min")
+  if (!is.null(wm) && (!is.numeric(wm) || wm < 0 || wm >= 1)) problems <- c(problems, "post.w_min must be in [0, 1)")
 
   ni <- .get_dotted(spec, "post.gibbs.n_iter"); bi <- .get_dotted(spec, "post.gibbs.burn_in")
   if (!is.null(ni) && !is.null(bi) && bi >= ni)

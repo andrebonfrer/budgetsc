@@ -13,6 +13,11 @@
 # reclaimer first renames the stale directory to a unique name (rename is
 # atomic; only one process can win) and only then creates a fresh lock.
 
+#' Path of a lock directory
+#' @param dir Directory holding the lock.
+#' @param name Lock name (without `.lock`).
+#' @return Character path.
+#' @export
 lock_path <- function(dir, name) file.path(dir, paste0(name, ".lock"))
 
 .lock_write_owner <- function(path, note = "") {

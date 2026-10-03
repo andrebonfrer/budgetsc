@@ -53,6 +53,7 @@ post:
   thin: 1
   save_beta: yes
   verbose: no
+  w_min: 0.0        # >0 drops donors below this weight from each pseudo-panel (memory); needs patched scmBayesPost
 tables:
   families:
     fwb: [numarrears, lengtharrears, liquidity_deficit_rate, income_share]
