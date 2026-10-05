@@ -25,3 +25,26 @@ test_that("real backends recover effect signs on the synthetic panel", {
   gt <- data.table::fread(file.path(run$dir, "tables", "gamma_table.csv"))
   expect_true(all(c("q_bh", "family") %in% names(gt)))
 })
+
+test_that("treated units with a missing moderator are left out of the post stage, not fatal", {
+  skip_if_not_installed("augMultiSynth"); skip_if_not_installed("scmBayesPost"); skip_on_cran()
+  root <- tempfile(); dir.create(file.path(root, "Processed"), recursive = TRUE)
+  old <- options(budgetsc.root = root); on.exit(options(old), add = TRUE)
+  sim <- sim_panel(n_treated = 40, n_later = 25, n_never = 160, seed = 8)
+  pn <- data.table::copy(sim$panel)
+  nev <- sim$customers[role == "never", customer_id]
+  set.seed(3); miss <- sample(nev, 25); pn[customer_id %in% miss, income_cv := NA_real_]
+  saveRDS(pn, file.path(root, "Processed", "analysis_panel.rds"))
+  spec <- spec_placebo_never(spec_main("sample.n_lags" = 23L, "sc.parallel" = FALSE, "post.gibbs.n_iter" = 80L,
+                                       "post.gibbs.burn_in" = 30L, "post.outcomes" = "numarrears"))
+  run <- run_register(spec); run_sample(run); fit_sc(run)
+  n_tr <- readRDS(file.path(run$dir, "sample.rds"))$ids[role == "treated", .N]
+  expect_error(fit_post_one(run, "numarrears"), NA)
+  left_out <- data.table::fread(file.path(run$dir, "tables", "post_units_left_out.csv"))
+  expect_gt(nrow(left_out), 0L)
+  expect_true(all(left_out$customer_id %in% miss))
+  summarise_run(run)
+  ot <- data.table::fread(file.path(run$dir, "tables", "outcome_table.csv"))
+  expect_equal(ot$n_treated, n_tr - nrow(left_out))
+  expect_true(any(grepl("left out", readLines(file.path(run$dir, "run.log")))))
+})

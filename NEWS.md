@@ -1,3 +1,22 @@
+# budgetsc 0.4.9
+
+* Post stage: treated units whose moderator row is missing or non-finite (NA, or
+  NaN/Inf from a term such as `I(a/b)`, or absent in the last week) are left out
+  of the second stage, logged in `run.log` and listed in
+  `tables/post_units_left_out.csv`; `n_treated` in the outcome table shows the
+  number actually fitted. Previously one such unit made `model.matrix()` drop a
+  row of the moderator matrix and the sampler failed with "non-conformable
+  arguments". Found on the never-onboarder placebo, whose pseudo-treated units
+  lack some customer-level variables. Weights are now assembled over the full
+  SC universe and then restricted; with no missing moderators the posterior
+  draws are identical (checked).
+
+# budgetsc 0.4.8
+
+* `all_jobs()` and `failed_jobs()` are in the package (previously console helpers).
+* `job_release_locks()` no longer errors on a run with nothing to release.
+* `worker.R` caps BLAS/OpenMP threads at one per worker process.
+
 # budgetsc 0.4.7
 
 * `post.w_min` (default 0): weight floor passed to `scmBayesPost::prepare_data_general()`

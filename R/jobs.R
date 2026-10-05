@@ -213,9 +213,46 @@ job_release_locks <- function(run, jobs = NULL, include_running = FALSE) {
   states <- c("stale", if (include_running) "running")
   jt <- jt[state %in% states]
   if (!is.null(jobs)) jt <- jt[job %in% jobs]
-  paths <- mapply(function(st, j) lock_path(.job_dir(run, st), j), jt$stage, jt$job)
+  if (!nrow(jt)) return(invisible(character(0)))
+  paths <- vapply(seq_len(nrow(jt)), function(i) lock_path(.job_dir(run, jt$stage[i]), jt$job[i]), character(1))
   paths <- paths[dir.exists(paths)]
   unlink(paths, recursive = TRUE)
   if (length(paths)) bsc_log(run, "locks released manually: ", paste(jt$job, collapse = ", "))
   invisible(paths)
 }
+
+
+#' All jobs across registered runs, and the failed ones with their errors
+#'
+#' @param root Project root.
+#' @param stale_after Seconds; see [lock_is_stale()].
+#' @return `all_jobs()`: data.table with run id, name, stage, job, state,
+#'   owner, age in minutes. `failed_jobs()`: the failed subset with the
+#'   timestamp, host and error message from the `.failed` marker.
+#' @export
+all_jobs <- function(root = NULL, stale_after = 3 * 3600) {
+  reg <- registry_read(root)
+  if (!nrow(reg)) return(data.table::data.table())
+  out <- data.table::rbindlist(lapply(reg$run_id, function(id) {
+    run <- run_load(id, root)
+    cbind(run_id = id, name = run$name,
+          data.table::rbindlist(list(job_table(run, "sc", stale_after), job_table(run, "post", stale_after))))
+  }))
+  out[, age_min := round(age_secs / 60)][]
+}
+
+#' @rdname all_jobs
+#' @export
+failed_jobs <- function(root = NULL) {
+  j <- all_jobs(root)[state == "failed"]
+  if (!nrow(j)) return(j)
+  j[, c("failed_at", "failed_by", "error") := {
+    run <- run_load(run_id[1], root)
+    f <- .job_failed_file(run, stage[1], job[1])
+    l <- if (file.exists(f)) readLines(f, warn = FALSE) else rep(NA_character_, 3)
+    list(l[1], l[2], paste(l[-(1:2)], collapse = " "))
+  }, by = .(run_id, stage, job)]
+  j[, .(run_id, name, stage, job, failed_at, failed_by, error)]
+}
+
+utils::globalVariables(c("age_secs", "age_min", "failed_at", "failed_by", "error"))

@@ -10,6 +10,31 @@
                                      J0 = gdata$cov$J0, treated_ids = gdata$cov$treated_ids,
                                      Z_block = gdata$Z_block)
 
+
+# Treated units whose moderator row cannot enter the second stage.
+# prepare_data_general() builds the moderator matrix from each treated unit's
+# row in the LAST week of the panel and model.matrix() silently drops rows with
+# a missing value, so one treated unit with an NA moderator leaves Z with fewer
+# rows than there are treated units and the sampler fails with "non-conformable
+# arguments". The check evaluates the actual model frame (so I(a/b) terms that
+# give NaN or Inf are caught too) and returns the units to leave out.
+.incomplete_moderator_units <- function(p, f_Z) {
+  rhs <- stats::delete.response(stats::terms(stats::as.formula(f_Z)))
+  tr <- unique(p$customer_id[p$budgetdummy == 1L])
+  last_t <- max(p$wID, na.rm = TRUE)
+  zl <- p[wID == last_t & customer_id %in% tr]
+  zl <- zl[!duplicated(customer_id)]
+  no_row <- setdiff(tr, zl$customer_id)                       # treated unit absent in the last week
+  bad <- character(0)
+  if (nrow(zl)) {
+    mf <- stats::model.frame(rhs, data = zl, na.action = stats::na.pass)
+    mm <- stats::model.matrix(rhs, mf)
+    ok <- apply(mm, 1, function(r) all(is.finite(r)))
+    bad <- zl$customer_id[!ok]
+  }
+  unique(c(bad, no_row))
+}
+
 #' Fit the post-estimation model for one outcome (a job)
 #'
 #' @param run A `bsc_run` with `panel.rds` and `sc_fit.rds` present.
@@ -23,6 +48,15 @@ fit_post_one <- function(run, outcome, lock = NULL, backend = NULL) {
   p <- readRDS(file.path(run$dir, "panel.rds")); data.table::setDT(p)
   if (!outcome %in% names(p)) stop("outcome '", outcome, "' not in panel", call. = FALSE)
   scfit <- readRDS(file.path(run$dir, "sc_fit.rds"))
+  # treated units with a missing moderator cannot enter the second stage: leave them out, say so
+  drop_ids <- .incomplete_moderator_units(p, spec$post$f_Z)
+  if (length(drop_ids)) {
+    p <- p[!customer_id %in% drop_ids]
+    bsc_log(run, "post/", outcome, ": ", length(drop_ids), " treated unit(s) left out (missing or non-finite moderator in f_Z)")
+    dir.create(file.path(run$dir, "tables"), showWarnings = FALSE)
+    data.table::fwrite(data.table::data.table(customer_id = drop_ids, reason = "missing or non-finite moderator in f_Z"),
+                       file.path(run$dir, "tables", "post_units_left_out.csv"))
+  }
   fun <- backend %||% switch(spec$post$backend %||% "scmbayes",
                               scmbayes = post_backend_scmbayes, stub = post_backend_stub,
                               stop("unknown post backend"))
@@ -46,7 +80,12 @@ fit_post_one <- function(run, outcome, lock = NULL, backend = NULL) {
 post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
   if (!requireNamespace("scmBayesPost", quietly = TRUE))
     stop("scmBayesPost is not installed; use spec$post$backend = 'stub' for a dry run.", call. = FALSE)
-  W <- scmBayesPost::build_W_from_augMultiSynth(scfit$fit, id_universe = unique(p$customer_id), self_weight = 1)
+  # weights over the full SC universe, then restricted to the units still in the
+  # post sample (units left out for missing moderators are treated, never donors,
+  # so no remaining unit loses weight)
+  W <- scmBayesPost::build_W_from_augMultiSynth(scfit$fit, id_universe = as.character(scfit$unit_vals), self_weight = 1)
+  in_p <- as.character(unique(p$customer_id)); tr_in_p <- as.character(unique(p$customer_id[p$budgetdummy == 1L]))
+  W <- W[rownames(W) %in% in_p, colnames(W) %in% tr_in_p, drop = FALSE]
   args <- list(
     dta = p, W = W, y_name = outcome,
     f.X = stats::reformulate(c("1", "budgetdummy"), response = outcome),
@@ -93,6 +132,7 @@ post_backend_stub <- function(p, scfit, outcome, spec, lock = NULL) {
       mean(Y[tr[j], post] - synth[j, post], na.rm = TRUE) - mean(Y[tr[j], pre] - synth[j, pre], na.rm = TRUE)
     }, numeric(1))
   } else unit_mean <- apply(tau[, m, , drop = FALSE], 1, mean, na.rm = TRUE)
+  keep <- ids %in% as.character(unique(p$customer_id)); ids <- ids[keep]; unit_mean <- unit_mean[keep]
   J0 <- length(ids); S <- spec$post$gibbs$n_iter - spec$post$gibbs$burn_in
   sdu <- stats::sd(unit_mean, na.rm = TRUE) / 4 + 1e-8
   set.seed(spec$post$gibbs$seed %||% 1L)
@@ -132,3 +172,5 @@ fit_post <- function(run, outcomes = NULL, backend = NULL) {
 job_fun_default <- function() function(run, job, lock) {
   if (job == "sc_fit") { run_sample(run); fit_sc(run); sc_diagnostics(run); mark_done(run, "sc") } else fit_post_one(run, job, lock)
 }
+
+utils::globalVariables(c("customer_id", "wID", "budgetdummy"))

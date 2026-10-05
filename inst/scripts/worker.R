@@ -6,6 +6,11 @@
 #
 # Stages: command-line arguments if given, else BUDGETSC_STAGES (comma-separated),
 # else "sc,post". Project root: option budgetsc.root, else BUDGETSC_ROOT, else getwd().
+# one BLAS/OpenMP thread per worker: several workers on one machine otherwise
+# oversubscribe the cores (load average of ~4x the core count), and the SC
+# stage parallelises by forking, which wants single-threaded BLAS anyway
+Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1")
+if (requireNamespace("RhpcBLASctl", quietly = TRUE)) RhpcBLASctl::blas_set_num_threads(1)
 suppressPackageStartupMessages(library(budgetsc))
 if (requireNamespace("Matrix", quietly = TRUE)) library(Matrix)   # augMultiSynth < 0.3.6 workaround
 root <- Sys.getenv("BUDGETSC_ROOT", unset = getwd())

@@ -87,3 +87,16 @@ test_that("placebo table stacks real and placebo runs", {
   expect_equal(nrow(pt), 2L)
   expect_equal(sort(pt$placebo), c(FALSE, TRUE))
 })
+
+test_that(".incomplete_moderator_units finds NA, NaN/Inf-producing and absent treated units", {
+  p <- data.table::data.table(customer_id = rep(1:5, each = 3), wID = rep(1:3, 5), budgetdummy = c(rep(c(0, 0, 1), 4), rep(0, 3)),
+                              a = 1, b = 2, income_mean = 100)
+  p[customer_id == 2 & wID == 3, a := NA_real_]            # NA at the last week
+  p[customer_id == 3, income_mean := 0]; p[customer_id == 3, b := 0]   # b/income... 0/0 -> NaN below
+  p[customer_id == 4, budgetdummy := c(0, 1, 1)]            # treated from week 2 ...
+  p <- p[!(customer_id == 4 & wID == 3)]                    # ... but absent in the last week
+  bad <- budgetsc:::.incomplete_moderator_units(p, "budgetdummy ~ a + I(b / income_mean)")
+  expect_setequal(bad, c(2L, 3L, 4L))
+  expect_false(1L %in% bad)                                 # complete unit kept
+  expect_false(5L %in% bad)                                 # donor (never treated) is not checked
+})
