@@ -44,3 +44,16 @@ test_that("pilot spec uses pilot horizon", {
   expect_equal(p$sample$cohort, "pilot")
   expect_equal(p$sample$n_lags, bsc_timeline()$horizon$n_lags_pilot)
 })
+
+
+test_that("post.f_Z must be a single formula string containing '~'", {
+  expect_silent(spec_validate(spec_main()))                                   # the default is valid
+  expect_silent(spec_main("post.f_Z" = "budgetdummy ~ 1"))
+  expect_error(spec_main("post.f_Z" = "age + income_mean"), "post.f_Z is not a valid formula.*age \\+ income_mean")
+  expect_error(spec_main("post.f_Z" = "I(x)"), "must contain a '~'")
+  expect_error(spec_main("post.f_Z" = ""), "single non-empty string")
+  expect_error(spec_main("post.f_Z" = c("a ~ b", "c ~ d")), "single non-empty string")
+  expect_error(spec_main("post.f_Z" = "budgetdummy ~ (age"), "does not parse")
+  err <- tryCatch(budgetsc:::.as_formula_checked("age + income_mean", "post.f_Z"), error = function(e) conditionMessage(e))
+  expect_match(err, 'Got: "age \\+ income_mean"')
+})

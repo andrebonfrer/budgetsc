@@ -21,6 +21,22 @@ winsorise <- function(x, probs = c(0.01, 0.99), na.rm = TRUE) {
   pmin(pmax(x, qr[1]), qr[2])
 }
 
+
+# Formula strings come from specs, and R's as.formula() gives an unhelpful
+# "attempt to set an attribute on NULL" for a string that is a call but has no
+# leading `~` (for example a right-hand side on its own). Check first and say
+# what is wrong, quoting the offending text.
+.as_formula_checked <- function(x, what = "formula") {
+  bad <- function(why) stop(sprintf("%s is not a valid formula (%s). Got: %s", what, why,
+                                    paste(deparse(x), collapse = " ")), call. = FALSE)
+  if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(trimws(x)))
+    bad("it must be a single non-empty string")
+  ff <- tryCatch(str2lang(x), error = function(e) bad(paste("it does not parse:", conditionMessage(e))))
+  if (!(is.call(ff) && is.symbol(ff[[1L]]) && identical(as.character(ff[[1L]]), "~")))
+    bad("it must contain a '~', for example 'budgetdummy ~ age + income_mean' or 'budgetdummy ~ 1'")
+  stats::as.formula(x)
+}
+
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 #' Identify the machine running this session

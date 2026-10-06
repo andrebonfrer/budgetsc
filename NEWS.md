@@ -1,3 +1,19 @@
+# budgetsc 0.4.11
+
+* `post.f_Z` is validated: `spec_validate()` (so `spec_modify()` and `run_register()`) rejects a
+  moderator formula that is not a single string containing `~`, quoting the offending text.
+  A job meeting such a string in a run registered earlier now fails with the same message
+  instead of R's "attempt to set an attribute on NULL" from `as.formula()`.
+
+# budgetsc 0.4.10
+
+* A failed job now writes `<job>.trace.txt` next to its `.failed` marker: the error,
+  host, R version, versions of budgetsc/scmBayesPost/augMultiSynth/data.table, and
+  the last 30 calls on the stack. `failed_jobs()` gains a `trace_file` column. Generic
+  R errors ("attempt to set an attribute on NULL") are otherwise impossible to
+  locate from the message alone.
+* Regression test: intercept-only moderator formula through the post stage.
+
 # budgetsc 0.4.9
 
 * Post stage: treated units whose moderator row is missing or non-finite (NA, or

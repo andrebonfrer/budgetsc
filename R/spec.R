@@ -278,6 +278,9 @@ spec_validate <- function(spec) {
   if (!is.null(wp) && (length(wp) != 2L || any(wp < 0 | wp > 1) || wp[1] >= wp[2]))
     problems <- c(problems, "derive.winsor_probs must be two increasing values in [0, 1]")
 
+  fz <- .get_dotted(spec, "post.f_Z")
+  if (!is.null(fz)) tryCatch(.as_formula_checked(fz, "post.f_Z"), error = function(e) problems <<- c(problems, conditionMessage(e)))
+
   fam <- .get_dotted(spec, "tables.families")
   if (!is.null(fam) && !is.list(fam))
     problems <- c(problems, "tables.families must be a named list of character vectors")

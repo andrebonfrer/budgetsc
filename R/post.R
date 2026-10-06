@@ -19,7 +19,7 @@
 # arguments". The check evaluates the actual model frame (so I(a/b) terms that
 # give NaN or Inf are caught too) and returns the units to leave out.
 .incomplete_moderator_units <- function(p, f_Z) {
-  rhs <- stats::delete.response(stats::terms(stats::as.formula(f_Z)))
+  rhs <- stats::delete.response(stats::terms(.as_formula_checked(f_Z, "post.f_Z")))
   tr <- unique(p$customer_id[p$budgetdummy == 1L])
   last_t <- max(p$wID, na.rm = TRUE)
   zl <- p[wID == last_t & customer_id %in% tr]
@@ -89,7 +89,7 @@ post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
   args <- list(
     dta = p, W = W, y_name = outcome,
     f.X = stats::reformulate(c("1", "budgetdummy"), response = outcome),
-    f.Z = stats::as.formula(spec$post$f_Z),
+    f.Z = .as_formula_checked(spec$post$f_Z, "post.f_Z"),
     id_col = "customer_id", time_col = "wID", tr_col = "budgetdummy",
     treat_type = "binary", second_stage = "moderators",
     first_stage = spec$post$first_stage, verbose = isTRUE(spec$post$verbose))
@@ -138,7 +138,7 @@ post_backend_stub <- function(p, scfit, outcome, spec, lock = NULL) {
   set.seed(spec$post$gibbs$seed %||% 1L)
   beta <- matrix(NA_real_, S, 2 * J0)
   for (j in seq_len(J0)) { beta[, 2 * j - 1] <- stats::rnorm(S, 0, 1e-3); beta[, 2 * j] <- stats::rnorm(S, unit_mean[j], sdu) }
-  Zterms <- attr(stats::terms(stats::as.formula(spec$post$f_Z)), "term.labels")
+  Zterms <- attr(stats::terms(.as_formula_checked(spec$post$f_Z, "post.f_Z")), "term.labels")
   gamma <- matrix(stats::rnorm(S * length(Zterms), 0, 0.01), S, length(Zterms), dimnames = list(NULL, Zterms))
   list(post = list(beta_samples = beta, gamma_samples = gamma, sigma2_samples = stats::rgamma(S, 2, 2),
                    tau_samples = matrix(1, S, 2)),

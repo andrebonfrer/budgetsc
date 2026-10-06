@@ -48,3 +48,20 @@ test_that("treated units with a missing moderator are left out of the post stage
   expect_equal(ot$n_treated, n_tr - nrow(left_out))
   expect_true(any(grepl("left out", readLines(file.path(run$dir, "run.log")))))
 })
+
+
+test_that("intercept-only moderator formula runs through the post stage (placebo configuration)", {
+  skip_if_not_installed("augMultiSynth"); skip_if_not_installed("scmBayesPost"); skip_on_cran()
+  root <- tempfile(); dir.create(file.path(root, "Processed"), recursive = TRUE)
+  old <- options(budgetsc.root = root); on.exit(options(old), add = TRUE)
+  sim <- sim_panel(n_treated = 40, n_later = 25, n_never = 160, seed = 8)
+  saveRDS(sim$panel, file.path(root, "Processed", "analysis_panel.rds"))
+  spec <- spec_placebo_never(spec_main("sample.n_lags" = 23L, "sc.parallel" = FALSE, "post.gibbs.n_iter" = 80L,
+                                       "post.gibbs.burn_in" = 30L, "post.outcomes" = c("numarrears", "liquidity_deficit_rate"),
+                                       "post.w_min" = 1e-3), "post.f_Z" = "budgetdummy ~ 1")
+  run <- run_register(spec); run_sample(run); fit_sc(run)
+  for (o in spec$post$outcomes) expect_error(fit_post_one(run, o), NA)
+  summarise_run(run)
+  ot <- data.table::fread(file.path(run$dir, "tables", "outcome_table.csv"))
+  expect_equal(nrow(ot), 2L)
+})

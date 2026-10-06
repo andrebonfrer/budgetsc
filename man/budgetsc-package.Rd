@@ -22,5 +22,10 @@ the synthetic panel; model stages follow.
 \author{
 \strong{Maintainer}: Andre Bonfrer \email{andre.bonfrer@deakin.edu.au}
 
+Authors:
+\itemize{
+  \item Andre Bonfrer \email{andre.bonfrer@deakin.edu.au}
+}
+
 }
 \keyword{internal}

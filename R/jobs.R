@@ -101,17 +101,31 @@ job_run <- function(run, stage, job, fun, lock) {
   on.exit(lock_release(lock), add = TRUE)
   bsc_log(run, "start ", stage, "/", job)
   t0 <- Sys.time()
-  ok <- tryCatch({
-    fun(run, job, lock)
-    if (!file.exists(.job_result_file(run, stage, job)))
-      stop("job function returned without writing ", .job_result_file(run, stage, job))
-    TRUE
-  }, error = function(e) {
-    bsc_log(run, "ERROR ", stage, "/", job, ": ", conditionMessage(e))
-    writeLines(c(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), host_id(), conditionMessage(e)),
-               .job_failed_file(run, stage, job))
-    FALSE
-  })
+  trace_env <- new.env(parent = emptyenv())
+  ok <- tryCatch(
+    withCallingHandlers({
+      fun(run, job, lock)
+      if (!file.exists(.job_result_file(run, stage, job)))
+        stop("job function returned without writing ", .job_result_file(run, stage, job))
+      TRUE
+    }, error = function(e) {
+      # runs where the error is raised, before the stack unwinds: keep the last frames
+      cs <- utils::tail(sys.calls(), 30L)
+      trace_env$calls <- vapply(cs, function(cl) substr(paste(deparse(cl), collapse = " "), 1L, 200L), character(1))
+    }),
+    error = function(e) {
+      bsc_log(run, "ERROR ", stage, "/", job, ": ", conditionMessage(e))
+      writeLines(c(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), host_id(), conditionMessage(e)),
+                 .job_failed_file(run, stage, job))
+      tf <- sub("\\.failed$", ".trace.txt", .job_failed_file(run, stage, job))
+      pk <- vapply(c("budgetsc", "scmBayesPost", "augMultiSynth", "data.table"), function(x)
+        tryCatch(as.character(utils::packageVersion(x)), error = function(e) "not installed"), character(1))
+      writeLines(c(paste0("error: ", conditionMessage(e)), paste0("host: ", host_id()), R.version.string,
+                   paste(names(pk), pk, sep = " ", collapse = "; "), "call stack (innermost last):",
+                   if (!is.null(trace_env$calls)) trace_env$calls else "(no calls captured)"), tf)
+      bsc_log(run, "traceback written to ", basename(tf))
+      FALSE
+    })
   if (ok && file.exists(.job_failed_file(run, stage, job))) unlink(.job_failed_file(run, stage, job))
   mins <- round(as.numeric(difftime(Sys.time(), t0, units = "mins")), 1)
   bsc_log(run, if (ok) "done " else "failed ", stage, "/", job, " (", mins, " min)")
@@ -252,7 +266,11 @@ failed_jobs <- function(root = NULL) {
     l <- if (file.exists(f)) readLines(f, warn = FALSE) else rep(NA_character_, 3)
     list(l[1], l[2], paste(l[-(1:2)], collapse = " "))
   }, by = .(run_id, stage, job)]
-  j[, .(run_id, name, stage, job, failed_at, failed_by, error)]
+  j[, trace_file := {
+    run <- run_load(run_id[1], root); f <- sub("\\.failed$", ".trace.txt", .job_failed_file(run, stage[1], job[1]))
+    if (file.exists(f)) f else NA_character_
+  }, by = .(run_id, stage, job)]
+  j[, .(run_id, name, stage, job, failed_at, failed_by, error, trace_file)]
 }
 
-utils::globalVariables(c("age_secs", "age_min", "failed_at", "failed_by", "error"))
+utils::globalVariables(c("age_secs", "age_min", "failed_at", "failed_by", "error", "trace_file"))

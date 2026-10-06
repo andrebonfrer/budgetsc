@@ -108,3 +108,38 @@ test_that("job_reset_failed makes failed jobs pending again", {
     expect_equal(job_table(run, "post")[job == "bad", state], "pending")
   })
 })
+
+
+test_that("a failed job leaves a call stack and package versions next to its marker", {
+  with_root({
+    run <- run_register(spec_main("post.outcomes" = "boom"))
+    saveRDS(1, file.path(run$dir, "sc_fit.rds")); saveRDS(1, file.path(run$dir, "panel.rds"))
+    inner <- function() { x <- NULL; names(x) <- "a" }           # "attempt to set an attribute on NULL"
+    f <- function(run, job, lock) inner()
+    out <- worker(f, once = TRUE)
+    expect_false(out$ok)
+    tf <- file.path(run$dir, "post", "boom.trace.txt")
+    expect_true(file.exists(tf))
+    tr <- readLines(tf)
+    expect_true(any(grepl("attribute on NULL", tr)))
+    expect_true(any(grepl("inner\\(\\)", tr)))                  # the failing function is in the stack
+    expect_true(any(grepl("budgetsc ", tr)))                       # versions recorded
+    expect_false(is.na(failed_jobs()$trace_file))
+  })
+})
+
+
+test_that("a job whose stored f_Z is not a formula fails with a message that quotes it", {
+  with_root({
+    run <- run_register(spec_main("post.outcomes" = "y1"))
+    run$spec$post$f_Z <- "age + income_mean"                        # as if registered by an older version
+    saveRDS(run$spec, file.path(run$dir, "spec.rds"))
+    sim <- sim_panel(n_treated = 10, n_later = 10, n_never = 0, seed = 2)
+    p <- data.table::copy(sim$panel); p[, budgetdummy := 0L]; p[, wID := wID]
+    saveRDS(p, file.path(run$dir, "panel.rds")); saveRDS(list(fit = list(), unit_vals = 1), file.path(run$dir, "sc_fit.rds"))
+    r <- run_load(run$id)
+    err <- tryCatch(fit_post_one(r, "numarrears"), error = function(e) conditionMessage(e))
+    expect_match(err, "post.f_Z is not a valid formula")
+    expect_match(err, '"age \\+ income_mean"')
+  })
+})
