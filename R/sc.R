@@ -134,8 +134,8 @@ fit_sc <- function(run, backend = NULL) {
 #'
 #' Calls `augMultiSynth::multiout_synth()` with the spec's `sc` options.
 #' Arguments are matched against the installed function's formals, so the
-#' parallel arguments (`parallel_backend`/`n_cores` in >= 0.3.5, absent in
-#' 0.3.4) are passed only when they exist.
+#' parallel arguments are mapped to whichever form is installed: `parallel_backend`/`n_cores`
+#' (>= 0.3.5) or `parallel`/`n_cores`/`backend` (0.3.4, where parallel is off by default).
 #' @param Y_list,treat_time,unit_ids As in `augMultiSynth::multiout_synth()`.
 #' @param L,K Lags and leads.
 #' @param spec The run spec (for `sc` options).
@@ -154,9 +154,17 @@ sc_backend_augmultisynth <- function(Y_list, treat_time, unit_ids, L, K, spec, t
     pooled_adjustment = TRUE, nu = sc$nu_scale * K * J0, verbose = isTRUE(sc$verbose),
     standardize_outcomes = sc$standardize_outcomes, intercept = sc$intercept, eps_sd = sc$eps_sd)
   fm <- names(formals(augMultiSynth::multiout_synth))
-  if (isTRUE(sc$parallel) && "parallel_backend" %in% fm) {
-    args$parallel_backend <- if (.Platform$OS.type == "unix") "fork" else "psock"
-    if ("n_cores" %in% fm) args$n_cores <- max(1L, parallel::detectCores() - 1L)
+  if (isTRUE(sc$parallel)) {
+    be <- if (.Platform$OS.type == "unix") "fork" else "psock"
+    nc <- max(1L, parallel::detectCores() - 1L)
+    if ("parallel_backend" %in% fm) {                 # augMultiSynth >= 0.3.5
+      args$parallel_backend <- be
+      if ("n_cores" %in% fm) args$n_cores <- nc
+    } else if ("parallel" %in% fm) {                  # augMultiSynth 0.3.4: parallel = FALSE unless asked
+      args$parallel <- TRUE
+      if ("n_cores" %in% fm) args$n_cores <- nc
+      if ("backend" %in% fm) args$backend <- be       # its "auto" picks psock inside RStudio; fork is safe in a worker process
+    }
   }
   if (!is.null(treated_units)) {
     if (!"treated_units" %in% fm) stop("per-unit donor eligibility needs an augMultiSynth whose multiout_synth() has a treated_units argument.", call. = FALSE)

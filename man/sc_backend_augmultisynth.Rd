@@ -29,6 +29,6 @@ Fit object satisfying the contract in \code{sc.R}.
 \description{
 Calls \code{augMultiSynth::multiout_synth()} with the spec's \code{sc} options.
 Arguments are matched against the installed function's formals, so the
-parallel arguments (\code{parallel_backend}/\code{n_cores} in >= 0.3.5, absent in
-0.3.4) are passed only when they exist.
+parallel arguments are mapped to whichever form is installed: \code{parallel_backend}/\code{n_cores}
+(>= 0.3.5) or \code{parallel}/\code{n_cores}/\code{backend} (0.3.4, where parallel is off by default).
 }

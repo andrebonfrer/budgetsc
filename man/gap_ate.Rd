@@ -4,12 +4,16 @@
 \alias{gap_ate}
 \title{Corrected effect estimate for one outcome of a finished run}
 \usage{
-gap_ate(run, outcome)
+gap_ate(run, outcome, onset = NULL)
 }
 \arguments{
 \item{run}{A \code{bsc_run} with \code{panel.rds} and \code{sc_fit.rds}.}
 
 \item{outcome}{Outcome column in the panel.}
+
+\item{onset}{Optional length-2 vector \code{c(first, last)}: keep only units that
+adopted in these weeks (inclusive). Use it to compare runs with different
+horizons on the same adopters, since the horizon changes who is treated.}
 }
 \value{
 data.table: outcome, n_units, ate, se_across_units, median_unit,

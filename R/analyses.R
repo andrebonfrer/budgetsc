@@ -81,6 +81,23 @@ an_placebo_table <- function(real, placebos, root = NULL) {
   ct[order(outcome, placebo)]
 }
 
+# Per-unit table behind gap_ate(): for each fitted treated unit, its adoption week, the effect (mean post gap minus
+# mean pre gap over the window T - L .. T + H) and the pre-adoption fit (RMSPE of the gap around its pre-window mean).
+.gap_unit_table <- function(run, outcome) {
+  p  <- data.table::as.data.table(readRDS(file.path(run$dir, "panel.rds"))); sc <- readRDS(file.path(run$dir, "sc_fit.rds"))
+  Wm <- sc$fit$weights_mat; Y <- build_Ylist(p, outcome)$Y_list[[1]]
+  L  <- run$spec$sample$n_lags; H <- run$spec$sample$n_leads
+  t0 <- sc$treat_time[match(rownames(Wm), as.character(sc$unit_vals))]
+  synth <- Wm %*% Y
+  rows <- lapply(seq_len(nrow(Wm)), function(j) {
+    idx <- (t0[j] - L):(t0[j] + H); idx <- idx[idx >= 1 & idx <= ncol(Y)]
+    y <- Y[rownames(Wm)[j], idx]; gap <- y - synth[j, idx]; pre <- idx < t0[j]
+    gp <- gap[pre]
+    c(effect = mean(gap[!pre], na.rm = TRUE) - mean(gp, na.rm = TRUE),
+      pre_rmspe = sqrt(mean((gp - mean(gp, na.rm = TRUE))^2, na.rm = TRUE)), pre_level = mean(y[pre], na.rm = TRUE)) })
+  data.table::data.table(customer_id = rownames(Wm), onset = sc$time_vals[t0], do.call(rbind, rows))
+}
+
 #' Corrected effect estimate for one outcome of a finished run
 #'
 #' For every adopter, the gap against its synthetic twin in each week of the
@@ -94,23 +111,57 @@ an_placebo_table <- function(real, placebos, root = NULL) {
 #' effect against the placebo distribution ([an_placebo_distribution()]).
 #' @param run A `bsc_run` with `panel.rds` and `sc_fit.rds`.
 #' @param outcome Outcome column in the panel.
+#' @param onset Optional length-2 vector `c(first, last)`: keep only units that
+#'   adopted in these weeks (inclusive). Use it to compare runs with different
+#'   horizons on the same adopters, since the horizon changes who is treated.
 #' @return data.table: outcome, n_units, ate, se_across_units, median_unit,
 #'   pct_pos, pct_neg.
 #' @export
-gap_ate <- function(run, outcome) {
-  p  <- data.table::as.data.table(readRDS(file.path(run$dir, "panel.rds"))); sc <- readRDS(file.path(run$dir, "sc_fit.rds"))
-  Wm <- sc$fit$weights_mat; Y <- build_Ylist(p, outcome)$Y_list[[1]]
-  L  <- run$spec$sample$n_lags; H <- run$spec$sample$n_leads
-  t0 <- sc$treat_time[match(rownames(Wm), as.character(sc$unit_vals))]
-  synth <- Wm %*% Y
-  eff <- vapply(seq_len(nrow(Wm)), function(j) {
-    idx <- (t0[j] - L):(t0[j] + H); idx <- idx[idx >= 1 & idx <= ncol(Y)]
-    gap <- Y[rownames(Wm)[j], idx] - synth[j, idx]; pre <- idx < t0[j]
-    mean(gap[!pre], na.rm = TRUE) - mean(gap[pre], na.rm = TRUE) }, numeric(1))
+gap_ate <- function(run, outcome, onset = NULL) {
+  u <- .gap_unit_table(run, outcome)
+  if (!is.null(onset)) { rng <- range(onset); u <- u[u$onset >= rng[1] & u$onset <= rng[2]] }   # the argument shares its name with the column
+  eff <- u$effect
   data.table::data.table(outcome = outcome, n_units = sum(is.finite(eff)), ate = mean(eff, na.rm = TRUE),
                          se_across_units = stats::sd(eff, na.rm = TRUE) / sqrt(sum(is.finite(eff))),
                          median_unit = stats::median(eff, na.rm = TRUE),
                          pct_pos = 100 * mean(eff > 0, na.rm = TRUE), pct_neg = 100 * mean(eff < 0, na.rm = TRUE))
+}
+
+#' Unit-level corrected effects
+#'
+#' One row per fitted treated unit: its adoption week (`onset`), the effect used by
+#' [gap_ate()] and the pre-adoption fit (`pre_rmspe`, with the mean pre-adoption
+#' `pre_level` for scale). Use it to compare horizons or specifications on
+#' identical units, or to inspect effects by adoption week.
+#' @inheritParams gap_ate
+#' @return data.table: customer_id, onset, effect, pre_rmspe, pre_level.
+#' @export
+gap_unit_effects <- function(run, outcome) .gap_unit_table(run, outcome)[]
+
+#' Pre-adoption fit by adoption group
+#'
+#' How well the synthetic control tracks the adopters before adoption, by tertile of
+#' adoption week: the mean root-mean-square gap around the pre-window mean and its
+#' size relative to the outcome's level. Late adopters have fewer eligible donors
+#' under per-unit eligibility, so a clearly worse fit in the last group is the price
+#' of that design.
+#' @param run A `bsc_run` with `panel.rds` and `sc_fit.rds`.
+#' @param outcomes Outcomes to report; default the matched outcomes among
+#'   `numarrears`, `total_spend`.
+#' @param breaks Optional breaks for adoption-week bins; default tertiles.
+#' @return data.table: outcome, adoption_week, units, mean_adoption_week,
+#'   mean_pre_rmspe, mean_pre_level, rmspe_over_level.
+#' @export
+an_prefit <- function(run, outcomes = NULL, breaks = NULL) {
+  sc <- readRDS(file.path(run$dir, "sc_fit.rds"))
+  outcomes <- outcomes %||% intersect(c("numarrears", "total_spend"), sc$outcomes)
+  data.table::rbindlist(lapply(outcomes, function(o) {
+    u <- .gap_unit_table(run, o)
+    br <- breaks %||% unique(stats::quantile(u$onset, c(0, 1/3, 2/3, 1), names = FALSE))
+    u[, list(outcome = o, units = .N, mean_adoption_week = round(mean(onset), 1), mean_pre_rmspe = mean(pre_rmspe, na.rm = TRUE),
+             mean_pre_level = mean(pre_level, na.rm = TRUE), rmspe_over_level = mean(pre_rmspe, na.rm = TRUE) / mean(pre_level, na.rm = TRUE)),
+      by = list(adoption_week = cut(onset, br, include.lowest = TRUE))][order(adoption_week)]
+  }))
 }
 
 #' Pre-adoption trend check of the synthetic-control gap
@@ -221,6 +272,6 @@ an_placebo_distribution <- function(real, placebo, outcomes = NULL, root = NULL)
   out[match(outcomes, outcome)][]
 }
 
-utils::globalVariables(c("onset", "contam", "adoption_week", "minBudgetDate", "ate", "placebo_mean", "placebo_sd", "adjusted", "z", "n_placebos", "trend_implied_ate", "effect_minus_trend", "gap_heldout_pre", "gap_post", "rmspe_heldout", "rmspe_matched",
+utils::globalVariables(c("pre_rmspe", "pre_level", "onset", "contam", "adoption_week", "minBudgetDate", "ate", "placebo_mean", "placebo_sd", "adjusted", "z", "n_placebos", "trend_implied_ate", "effect_minus_trend", "gap_heldout_pre", "gap_post", "rmspe_heldout", "rmspe_matched",
   "rmspe_ratio_heldout", "held_out_weeks", "heldout_pre", "matched_pre", "post", "i.treat_wID",
   "level", "placebo", "pct_sig_pos", "pct_sig_neg", "sig_split"))

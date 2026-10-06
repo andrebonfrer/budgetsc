@@ -133,3 +133,21 @@ test_that("an_donor_contamination: positive for global donors, zero for per-unit
   expect_gt(cg$mean_weight_on_contaminated_donors[nrow(cg)], cg$mean_weight_on_contaminated_donors[1])   # grows with adoption week
   expect_equal(sum(cg$units), nrow(readRDS(file.path(glo$dir, "sc_fit.rds"))$fit$weights_mat))
 })
+
+
+test_that("gap_ate can be restricted to adoption weeks; unit effects and pre-fit by group are consistent", {
+  setup_v050(n_treated = 80, n_later = 150, n_never = 0, seed = 17)
+  run <- run_register(stub50("post.outcomes" = "numarrears")); run_sample(run); fit_sc(run)
+  u <- gap_unit_effects(run, "numarrears")
+  expect_true(all(c("customer_id", "onset", "effect", "pre_rmspe", "pre_level") %in% names(u)))
+  expect_equal(gap_ate(run, "numarrears")$ate, mean(u$effect), tolerance = 1e-12)
+  cut_wk <- stats::median(u$onset)
+  g_early <- gap_ate(run, "numarrears", onset = c(0, cut_wk))
+  expect_equal(g_early$ate, mean(u[onset <= cut_wk, effect]), tolerance = 1e-12)
+  expect_equal(g_early$n_units, u[onset <= cut_wk, .N])
+  expect_lt(g_early$n_units, nrow(u))
+  pf <- an_prefit(run)
+  expect_true(all(c("outcome", "adoption_week", "units", "mean_pre_rmspe", "rmspe_over_level") %in% names(pf)))
+  expect_equal(sum(pf[outcome == "numarrears", units]), nrow(u))
+  expect_true(all(pf$mean_pre_rmspe >= 0))
+})

@@ -1,3 +1,15 @@
+# budgetsc 0.5.1
+
+* **Parallel SC fits on augMultiSynth 0.3.4.** `sc.parallel = TRUE` was only honoured by versions with a
+  `parallel_backend` argument (>= 0.3.5); on 0.3.4, where `parallel` defaults to `FALSE`, every SC fit ran on one core.
+  It now maps to 0.3.4's `parallel`/`n_cores`/`backend` (fork on unix). Weights are identical to a sequential fit
+  (checked with four forked workers).
+* `gap_ate(run, outcome, onset = c(first, last))` restricts to units adopting in those weeks, to compare horizons
+  or specifications on the same adopters.
+* `gap_unit_effects()`: one row per fitted treated unit (adoption week, effect, pre-adoption fit).
+* `an_prefit()`: pre-adoption fit of the synthetic control by adoption group, to see whether late adopters, who have
+  fewer eligible donors under per-unit eligibility, are matched worse.
+
 # budgetsc 0.5.0
 
 Two fixes to the estimator, found with the simulation grid and the placebo runs, plus tools to judge them.
