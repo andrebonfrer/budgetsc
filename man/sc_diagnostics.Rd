@@ -10,7 +10,7 @@ sc_diagnostics(run)
 \item{run}{A \code{bsc_run} with \code{sc_fit.rds} present.}
 }
 \value{
-list(pretrend, fit_summary), invisibly.
+list(pretrend, fit_summary, unit_gaps, pre_slope), invisibly.
 }
 \description{
 For every treated unit and outcome (matched and held-out), computes the
@@ -18,5 +18,9 @@ treated-minus-synthetic gap by event week over the L pre-treatment weeks
 and the H post weeks using the fit's weights, after removing the outcome's
 pre-window intercept. Writes \code{sc_diag/pretrend.csv} (mean gap and RMSPE by
 outcome and event week) and \code{sc_diag/fit_summary.csv} (RMSPE over the
-matched window, the held-out window when \code{match_end > 0}, and post).
+matched window, the held-out window when \code{match_end > 0}, and post),
+\code{sc_diag/unit_gaps.csv}, and \code{sc_diag/pre_slope.csv}: the mean per-unit slope
+of the gap over the matched pre-window with its t-statistic, and
+\code{trend_implied_ate}, the post-minus-pre difference that trend continuation
+alone would produce. Compare it with the estimated effect.
 }

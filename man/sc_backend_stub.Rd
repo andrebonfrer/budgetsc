@@ -4,7 +4,7 @@
 \alias{sc_backend_stub}
 \title{Stub backend: equal donor weights, gaps = treated minus donor mean}
 \usage{
-sc_backend_stub(Y_list, treat_time, unit_ids, L, K, spec)
+sc_backend_stub(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL)
 }
 \arguments{
 \item{Y_list, treat_time, unit_ids}{As in \code{augMultiSynth::multiout_synth()}.}
@@ -12,8 +12,11 @@ sc_backend_stub(Y_list, treat_time, unit_ids, L, K, spec)
 \item{L, K}{Lags and leads.}
 
 \item{spec}{The run spec (for \code{sc} options).}
+
+\item{treated_units}{Optional integer indices of the treated units. When given, units with a finite \code{treat_time} that are not listed are donors that adopt later, and augMultiSynth's eligibility rule applies per treated unit.}
 }
 \description{
 No optimisation; exists so the pipeline can run end to end without the
-model packages. Not for inference.
+model packages. Not for inference. Honours per-unit eligibility when
+\code{treated_units} is given.
 }

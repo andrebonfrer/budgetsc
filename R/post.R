@@ -48,6 +48,13 @@ fit_post_one <- function(run, outcome, lock = NULL, backend = NULL) {
   p <- readRDS(file.path(run$dir, "panel.rds")); data.table::setDT(p)
   if (!outcome %in% names(p)) stop("outcome '", outcome, "' not in panel", call. = FALSE)
   scfit <- readRDS(file.path(run$dir, "sc_fit.rds"))
+  # treated units the SC stage could not fit (too few eligible donors) have no weights: leave them out, say so
+  tr_all <- unique(p$customer_id[p$budgetdummy == 1L]); tr_fit <- as.character(scfit$fit$treated_unit_ids)
+  no_fit <- tr_all[!as.character(tr_all) %in% tr_fit]
+  if (length(no_fit)) {
+    p <- p[!customer_id %in% no_fit]
+    bsc_log(run, "post/", outcome, ": ", length(no_fit), " treated unit(s) without an SC fit left out")
+  }
   # treated units with a missing moderator cannot enter the second stage: leave them out, say so
   drop_ids <- .incomplete_moderator_units(p, spec$post$f_Z)
   if (length(drop_ids)) {
@@ -58,7 +65,7 @@ fit_post_one <- function(run, outcome, lock = NULL, backend = NULL) {
                        file.path(run$dir, "tables", "post_units_left_out.csv"))
   }
   fun <- backend %||% switch(spec$post$backend %||% "scmbayes",
-                              scmbayes = post_backend_scmbayes, stub = post_backend_stub,
+                              scmbayes = post_backend_scmbayes, scmbayes_gap = post_backend_gap, stub = post_backend_stub,
                               stop("unknown post backend"))
   if (!is.null(lock)) lock_heartbeat(lock)
   res <- fun(p, scfit, outcome, spec, lock)
@@ -118,6 +125,58 @@ post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
   list(post = post, gdata_light = .gdata_light(gdata))
 }
 
+
+#' scmBayesPost backend on synthetic-control gaps (experimental)
+#'
+#' Stage 2 on the gap series instead of the raw outcomes. For each treated unit
+#' the outcome is replaced by (unit outcome - weighted donor outcome) in the same
+#' calendar week, over the window `T - L .. T + H`, indexed by event time, and
+#' the unit is regressed on `1 + treatment` alone (donors drop out; the weights
+#' were already used to form the gap). The hierarchical shrinkage and the
+#' moderator regression are those of [post_backend_scmbayes()].
+#' @inheritParams post_backend_scmbayes
+#' @return list(post, gdata_light).
+#' @export
+post_backend_gap <- function(p, scfit, outcome, spec, lock = NULL) {
+  if (!requireNamespace("scmBayesPost", quietly = TRUE)) stop("scmBayesPost is not installed.", call. = FALSE)
+  data.table::setDT(p)
+  Wm <- scfit$fit$weights_mat
+  Yp <- build_Ylist(p, outcome); Y <- Yp$Y_list[[1]]; tv <- Yp$time_vals
+  tr <- intersect(rownames(Wm), rownames(Y))            # p may have lost treated units (no SC fit, missing moderator): keep those still in p
+  Wm <- Wm[tr, rownames(Y), drop = FALSE]               # align weights and outcomes by unit name
+  synth <- Wm %*% Y
+  L <- as.integer(spec$sample$n_lags); H <- as.integer(spec$sample$n_leads)
+  t0 <- scfit$treat_time[match(tr, as.character(scfit$unit_vals))]
+  rows <- data.table::rbindlist(lapply(seq_along(tr), function(j) {
+    idx <- (t0[j] - L):(t0[j] + H); idx <- idx[idx >= 1 & idx <= ncol(Y)]
+    data.table::data.table(customer_id = tr[j], wID_cal = tv[idx], tau = idx - t0[j],
+                           gap = Y[tr[j], idx] - synth[j, idx])
+  }))
+  if (is.integer(p$customer_id)) rows[, customer_id := as.integer(customer_id)] else if (is.numeric(p$customer_id)) rows[, customer_id := as.numeric(customer_id)]
+  dta <- merge(rows, p, by.x = c("customer_id", "wID_cal"), by.y = c("customer_id", "wID"))
+  dta[, (outcome) := gap]
+  dta[, wID := tau + L + 1L]                                   # event-time index 1..L+H+1 (last row = tau = H for everyone)
+  dta[, budgetdummy := as.integer(tau >= 0L)]
+  drop_ids <- .incomplete_moderator_units(dta, spec$post$f_Z)
+  if (length(drop_ids)) dta <- dta[!customer_id %in% drop_ids]
+  ids <- as.character(unique(dta$customer_id))
+  W <- diag(length(ids)); dimnames(W) <- list(ids, ids)        # each unit is its own (only) pseudo-panel member
+  gdata <- scmBayesPost::prepare_data_general(
+    dta = dta, W = W, y_name = outcome, f.X = stats::reformulate(c("1", "budgetdummy"), response = outcome),
+    f.Z = .as_formula_checked(spec$post$f_Z, "post.f_Z"), id_col = "customer_id", time_col = "wID", tr_col = "budgetdummy",
+    treat_type = "binary", second_stage = "moderators", first_stage = spec$post$first_stage, verbose = FALSE)
+  Z <- gdata$Z_block
+  is_dummy <- apply(Z, 2, function(x) all(stats::na.omit(unique(x)) %in% c(0, 1)))
+  sc_cols <- !(is_dummy | colnames(Z) == "Intercept")
+  if (any(sc_cols)) Z[, sc_cols] <- scale(Z[, sc_cols])
+  gdata$Z_block <- Z
+  set.seed(spec$post$gibbs$seed %||% 1L)
+  out <- NULL
+  utils::capture.output(out <- scmBayesPost::gibbs_postscm(gdata, n_iter = spec$post$gibbs$n_iter,
+                          burn_in = spec$post$gibbs$burn_in, control = spec$post$priors), file = nullfile())
+  list(post = out, gdata_light = .gdata_light(gdata))
+}
+
 #' Stub backend: unit effects = mean post gap from the SC fit + noise
 #' @inheritParams post_backend_scmbayes
 #' @export
@@ -125,11 +184,14 @@ post_backend_stub <- function(p, scfit, outcome, spec, lock = NULL) {
   tau <- scfit$fit$tau; ids <- as.character(scfit$fit$treated_unit_ids)
   m <- if (outcome %in% scfit$outcomes) which(scfit$outcomes == outcome) else NULL
   if (is.null(m)) {                                     # unmatched outcome: recompute gap with the weights
-    Yp <- build_Ylist(p, outcome); Y <- Yp$Y_list[[1]]; synth <- scfit$fit$weights_mat %*% Y
-    tt <- scfit$treat_time; tr <- which(is.finite(tt)); L <- scfit$fit$L; H <- scfit$fit$K
-    unit_mean <- vapply(seq_along(tr), function(j) {
-      t0 <- tt[tr[j]]; pre <- max(1, t0 - L):(t0 - 1); post <- t0:min(ncol(Y), t0 + H)
-      mean(Y[tr[j], post] - synth[j, post], na.rm = TRUE) - mean(Y[tr[j], pre] - synth[j, pre], na.rm = TRUE)
+    Yp <- build_Ylist(p, outcome); Y <- Yp$Y_list[[1]]
+    Wm <- scfit$fit$weights_mat; Wm <- Wm[, rownames(Y), drop = FALSE]; synth <- Wm %*% Y
+    L <- scfit$fit$L; H <- scfit$fit$K
+    unit_mean <- vapply(seq_len(nrow(Wm)), function(j) {
+      id <- rownames(Wm)[j]; t0 <- scfit$treat_time[match(id, as.character(scfit$unit_vals))]
+      pre <- max(1, t0 - L):(t0 - 1); post <- t0:min(ncol(Y), t0 + H)
+      if (!id %in% rownames(Y)) return(NA_real_)
+      mean(Y[id, post] - synth[j, post], na.rm = TRUE) - mean(Y[id, pre] - synth[j, pre], na.rm = TRUE)
     }, numeric(1))
   } else unit_mean <- apply(tau[, m, , drop = FALSE], 1, mean, na.rm = TRUE)
   keep <- ids %in% as.character(unique(p$customer_id)); ids <- ids[keep]; unit_mean <- unit_mean[keep]
@@ -170,7 +232,9 @@ fit_post <- function(run, outcomes = NULL, backend = NULL) {
 #' @return A function `(run, job, lock)`.
 #' @export
 job_fun_default <- function() function(run, job, lock) {
-  if (job == "sc_fit") { run_sample(run); fit_sc(run); sc_diagnostics(run); mark_done(run, "sc") } else fit_post_one(run, job, lock)
+  if (job == "sc_fit") {
+    if (!is.null(run$spec$sc$from)) run_reuse_sc(run) else { run_sample(run); fit_sc(run); sc_diagnostics(run); mark_done(run, "sc") }
+  } else fit_post_one(run, job, lock)
 }
 
 utils::globalVariables(c("customer_id", "wID", "budgetdummy"))

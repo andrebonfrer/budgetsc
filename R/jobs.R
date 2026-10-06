@@ -50,6 +50,7 @@
 job_table <- function(run, stage = "post", stale_after = 3 * 3600) {
   jd <- .job_dir(run, stage)
   jobs <- .job_names(run, stage)
+  if (!length(jobs)) return(data.table::data.table(stage = character(0), job = character(0), state = character(0), owner = character(0), age_secs = numeric(0)))
   # post jobs need the SC stage's outputs; until they exist the job is "blocked"
   blocked <- stage == "post" && !(file.exists(file.path(run$dir, "sc_fit.rds")) && file.exists(file.path(run$dir, "panel.rds")))
   rows <- lapply(jobs, function(j) {

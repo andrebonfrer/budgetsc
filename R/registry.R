@@ -127,8 +127,9 @@ stage_done <- function(run, stage) {
   if (stage == "sc") return(file.exists(file.path(run$dir, "sc_fit.rds")))     # the result file, not a marker
   if (stage == "sample") return(file.exists(file.path(run$dir, "sample.rds")) && file.exists(file.path(run$dir, "panel.rds")))
   if (stage == "post") {
-    files <- file.path(run$dir, "post", paste0(run$spec$post$outcomes, ".rds"))
-    return(length(files) > 0L && all(file.exists(files)))
+    outs <- run$spec$post$outcomes
+    if (!length(outs)) return(TRUE)                               # a run with no post outcomes (placebo sets) has nothing to wait for
+    return(all(file.exists(file.path(run$dir, "post", paste0(outs, ".rds")))))
   }
   file.exists(file.path(run$dir, paste0(stage, ".done")))
 }

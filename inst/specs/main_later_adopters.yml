@@ -32,6 +32,9 @@ sc:
                    SpendAlcohol, SpendTobacco, total_spend]
   holdout_outcomes: [weekly_income, monthly_loan_payment_w]   # placebo / balance only, never matched
   match_end: 0
+  donor_eligibility: per_unit        # a donor must adopt more than H weeks after the treated unit (global = original behaviour)
+  min_eligible_donors: 20            # treated units with fewer eligible donors are set aside and listed
+  from: ~                            # a run id here reuses that run's SC fit (post-only variants)
   max_donors: 1000
   screen_outcome: total_spend
   screen_method: mse
@@ -47,6 +50,7 @@ post:
   outcomes: [numarrears, lengtharrears, liquidity_deficit_rate, income_share]
   f_Z: budgetdummy ~ budgetcategoriesN + factor(frequency) + age + income_mean + customer_tenure + gender + income_cv + cv_2020_spend + I(homeloan_mean/income_mean) + numgoalcats + br_under + br_target + br_over
   first_stage: none
+  backend: scmbayes_gap               # Stage 2 on SC gaps (corrected); scmbayes = original raw-outcome Stage 2
   instruments: ~
   gibbs: {n_iter: 2000, burn_in: 1000, seed: 1}
   priors: {Sigma_gamma_prior: 1000.0, a_sigma_tau_prior: 5.0, b_sigma_tau_prior: 1.0}

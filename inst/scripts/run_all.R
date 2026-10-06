@@ -2,6 +2,14 @@
 #   Rscript inst/scripts/run_all.R           # registers runs
 #   Rscript inst/scripts/worker.R sc post    # on each VM: claims and runs jobs
 # then, per run: summarise_run(run_load("<name>")) and the an_*() analyses.
+# Since 0.5.0 new specs default to per-unit donor eligibility and the gap-based Stage 2, so the specs below
+# are NEW runs (new ids), not the 0.4.x runs. The original estimator stays available for comparison:
+#   spec_modify(spec_main("sc.donor_eligibility" = "global", "post.backend" = "scmbayes"), "name" = "main_original_estimator")
+# Post-only variants reuse a finished SC fit (sc.from), so they cost minutes, not an SC fit:
+#   main <- spec_main()
+#   spec_modify(main, "sc.from" = spec_id(main), "post.backend" = "scmbayes", "name" = "main_original_stage2_same_sc")
+# Placebo distribution (needs a panel with never-onboarders):
+#   placebo_set(spec_main("data.panel_file" = "Processed/analysis_panel_all.rds"), seeds = 1:30)
 suppressPackageStartupMessages(library(budgetsc))
 options(budgetsc.root = Sys.getenv("BUDGETSC_ROOT", unset = getwd()))
 

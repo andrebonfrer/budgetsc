@@ -1,7 +1,7 @@
 Package: budgetsc
 Type: Package
 Title: Reproducible Synthetic-Control and Bayesian Post-Estimation Pipeline for the Household Budgeting Study
-Version: 0.4.11
+Version: 0.5.0
 Authors@R: person("Andre", "Bonfrer", role = c("aut", "cre"), email = "andre.bonfrer@deakin.edu.au")
 Description: Analysis pipeline for the digital-budgeting and financial-wellbeing
     project. A run is described by a specification (spec) with a deterministic
@@ -9,8 +9,9 @@ Description: Analysis pipeline for the digital-budgeting and financial-wellbeing
     chosen design (later adopters, onboarder donor pools, placebo dates,
     distress subsets), fit regularised multi-outcome synthetic controls
     (augMultiSynth), estimate heterogeneous treatment effects with Bayesian
-    post-estimation (scmBayesPost), and write tidy CSV tables with HTML/LaTeX
-    twins plus diagnostics (pre-trend fit, held-out gaps, placebo outcomes).
+    post-estimation (scmBayesPost) on the synthetic-control gaps with per-unit donor
+    eligibility, and write tidy CSV tables with HTML/LaTeX twins plus diagnostics
+    (pre-trend slope, held-out gaps, placebo distributions, donor contamination).
     A directory-based lock protocol lets several machines on one shared
     filesystem work through registered runs without a scheduler.
 License: MIT + file LICENSE

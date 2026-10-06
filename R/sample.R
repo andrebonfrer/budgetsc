@@ -61,10 +61,12 @@ define_sample <- function(p, spec) {
   truncate_date <- launch_date + 7L * H
 
   # ---- roles by design ----------------------------------------------------------
+  x[, real_onset_date := as.Date(NA)]
   if (design == "later_adopters") {
     x <- x[donor == 0L]                                   # budget setters only
     note("budget setters only", x$customer_id)
     x[, donor := 0L]
+    x[, real_onset_date := minBudgetDate]                 # a later adopter keeps its REAL adoption date (per-unit donor eligibility)
     x[minBudgetDate >= truncate_date, minBudgetDate := as.Date(NA)]   # later adopters -> donors
     x[is.na(minBudgetDate), donor := 1L]
   } else if (design %in% c("partial_onboarders", "non_onboarders")) {
@@ -139,9 +141,11 @@ define_sample <- function(p, spec) {
   }
 
   # ---- ids and treatment weeks ------------------------------------------------------
-  ids <- unique(x[, .(customer_id, donor, minBudgetDate, treat_wID)])
+  ids <- unique(x[, .(customer_id, donor, minBudgetDate, treat_wID, real_onset_date)])
   ids[, role := data.table::fifelse(donor == 0L, "treated", "donor")]
   ids[, cohort := cohort]
+  ids[, real_onset_wID := week_of(real_onset_date, tl$origin) +
+        as.integer(ts == "next_week" & format(real_onset_date, "%u") != "1")]
   # treated units need L observed pre-weeks and H+1 post-weeks inside the panel
   wk_range <- range(x$wID)
   short <- ids[role == "treated" & (treat_wID - L < wk_range[1] | treat_wID + H > wk_range[2])]
@@ -152,7 +156,7 @@ define_sample <- function(p, spec) {
   ids[, c("donor", "minBudgetDate") := list(NULL, minBudgetDate)]
 
   structure(list(
-    ids = ids[, .(customer_id, role, cohort, treat_wID, minBudgetDate)],
+    ids = ids[, .(customer_id, role, cohort, treat_wID, minBudgetDate, real_onset_wID)],
     window = list(L = L, H = H, match_end = as.integer(spec$sc$match_end),
                   launch_date = launch_date, launch_wID = launch_wID, truncate_wID = truncate_wID),
     funnel = data.table::rbindlist(funnel),
@@ -239,7 +243,7 @@ print.bsc_sample <- function(x, ...) {
   invisible(x)
 }
 
-utils::globalVariables(c("i.pseudo", "pseudo", "minBudgetDate", "donor", "onboarddate", "budgetdummy", "pre_weeks",
+utils::globalVariables(c("real_onset_date", "real_onset_wID", "i.pseudo", "pseudo", "minBudgetDate", "donor", "onboarddate", "budgetdummy", "pre_weeks",
   "pre_spend_sum", "pre_income_sum", "pre_spend_pct_income", "budgetcategoriesN", "n_cats",
-  "treat_wID", "spend_mean", "spend_pct_income", "has_homeloan", "log_spend_mean", "str_sp",
+  "treat_wID", "real_onset_date", "real_onset_wID", "spend_mean", "spend_pct_income", "has_homeloan", "log_spend_mean", "str_sp",
   "str_ls", "strata", "share", "n_target", "i.n_target", "N", "cohort"))

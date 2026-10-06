@@ -49,6 +49,9 @@ spec_default <- function() {
       match_outcomes       = match_outcomes_wide(),
       holdout_outcomes     = c("weekly_income", "monthly_loan_payment_w"),
       match_end            = 0L,
+      donor_eligibility    = "per_unit",
+      min_eligible_donors  = 20L,
+      from                 = NULL,
       backend              = "augmultisynth",
       max_donors           = 1000L,
       screen_outcome       = "total_spend",
@@ -68,7 +71,7 @@ spec_default <- function() {
                           "customer_tenure + gender + income_cv + cv_2020_spend +",
                           "I(homeloan_mean/income_mean) + numgoalcats + br_under + br_target + br_over"),
       first_stage = "none",
-      backend     = "scmbayes",
+      backend     = "scmbayes_gap",
       instruments = NULL,
       gibbs       = list(n_iter = 2000L, burn_in = 1000L, seed = 1L),
       priors      = list(Sigma_gamma_prior = 1000, a_sigma_tau_prior = 5, b_sigma_tau_prior = 1),
@@ -239,7 +242,12 @@ spec_validate <- function(spec) {
   chk_enum("sc.intercept", c("none", "outcome", "global"))
   chk_enum("sc.solver", c("fw", "qp"))
   chk_enum("sc.backend", c("augmultisynth", "stub"))
-  chk_enum("post.backend", c("scmbayes", "stub"))
+  chk_enum("sc.donor_eligibility", c("per_unit", "global"))
+  chk_int("sc.min_eligible_donors", 1L)
+  sf <- .get_dotted(spec, "sc.from")
+  if (!is.null(sf) && (!is.character(sf) || length(sf) != 1L || is.na(sf) || !nzchar(sf)))
+    problems <- c(problems, "sc.from must be NULL or a single run id (or name)")
+  chk_enum("post.backend", c("scmbayes", "scmbayes_gap", "stub"))
   chk_enum("post.first_stage", c("none", "selection_probit_bayes"))
   chk_int("sample.n_lags", 1L)
   chk_int("sample.n_leads", 1L)

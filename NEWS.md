@@ -1,3 +1,49 @@
+# budgetsc 0.5.0
+
+Two fixes to the estimator, found with the simulation grid and the placebo runs, plus tools to judge them.
+
+**Corrected defaults for new specs** (runs registered before 0.5.0 keep the old behaviour: a spec without the new
+fields is read as `global` donors and the original Stage 2).
+
+* `post.backend = "scmbayes_gap"` (new default): Stage 2 on the synthetic-control gap (unit minus weighted donors,
+  week by week, window `T-L .. T+H`) instead of raw outcomes on a stacked unit + donors panel. The original Stage 2
+  compares post-adoption weeks with a blend of the adopter's own earlier weeks and the donors' weeks over the whole
+  panel, so calendar drift and adopter/donor level differences enter the "effect" (verified: the estimate equals
+  treated post mean minus the weighted mean of all other rows). In 120 simulated datasets with zero effect the
+  original's bias was -0.004 to -0.015 on arrears, did not shrink with sample size, and its interval excluded zero
+  in 90-100% of datasets; the gap version was centred on zero. `post.backend = "scmbayes"` is the original.
+  scmBayesPost is unchanged.
+* `sc.donor_eligibility = "per_unit"` (new default): later adopters are donors for a treated unit only if they
+  adopt more than H weeks after it (the rule the paper states). Previously every later adopter was coded
+  never-treated, so donors that adopted inside a treated unit's post window carried a treatment effect into its
+  counterfactual and effects were pulled toward zero, more for later adopters (in simulation 87%, 55% and 50% of a
+  true effect recovered by adoption-week tertile, with 16-77% of the weight on such donors; 93-114% with per-unit
+  eligibility and none). augMultiSynth is given each donor's real adoption week and the treated units via
+  `treated_units`. Treated units with fewer than `sc.min_eligible_donors` (default 20) eligible donors are set aside
+  before the fit (augMultiSynth stops if any unit has none), logged, and listed in
+  `tables/sc_units_without_donors.csv`; the post stage leaves them out and says so.
+
+**New**
+
+* `sc.from`: a run reuses another run's SC fit (panel, sample, weights, diagnostics are copied), so post-only
+  variants cost minutes. The `data`, `derive`, `sample` and `sc` sections must match; `run_reuse_sc()`.
+* `gap_ate()`: the corrected estimate for any outcome of a finished run (also outcomes not in the matching set),
+  with an across-unit standard error.
+* `an_donor_contamination()`: weight on donors that adopt inside a treated unit's post window, by adoption week
+  (works on SC fits saved by older versions).
+* `an_pretrend()` and `sc_diag/pre_slope.csv`: per-outcome slope of the gap over the matched pre-window with its
+  t-statistic and `trend_implied_ate`, the post-minus-pre difference that trend continuation alone would give.
+* `placebo_set()` and `an_placebo_distribution()`: repeated never-onboarder assignments (SC stage only) give the
+  distribution of the estimate under no treatment; the real estimate is reported with its placebo-adjusted value,
+  z-score and empirical p-value.
+* Runs with no post outcomes are valid (`stage_done()`, `job_table()`).
+* `sim/estimator_grid.R`: the laptop simulation that tests both fixes, alone and together.
+
+**Fixes**
+
+* The stub post backend and the gap backend align weights and outcomes by unit name when treated units were left out.
+* `sc_diagnostics()` uses the units actually fitted (`treated_idx`) and still reads older fits.
+
 # budgetsc 0.4.11
 
 * `post.f_Z` is validated: `spec_validate()` (so `spec_modify()` and `run_register()`) rejects a
