@@ -104,6 +104,36 @@ spec_main <- function(...) {
   spec_modify(s, ...)
 }
 
+#' Two-launch specification (reviewers' identification design)
+#'
+#' [spec_main()] with `sample.design = "two_launch"`: treated = pilot-period
+#' adopters, donors = public-launch adopters (no access before the public launch),
+#' matched within `band` weeks of relative adoption week (pilot week k against
+#' public week k +/- band), pre window `n_lags_pilot` from the timeline, donors
+#' coded never-treated for the fit, treated post weeks from the public launch on
+#' masked in the post stage, and treated units with fewer than `min_post`
+#' unmasked post weeks dropped. Defaults for the Stage 2 regression are unchanged
+#' (`~ 1 + budgetdummy`); pass `"post.f_X"` to add `tau`, `heldout_block` or the
+#' post windows (see [post_backend_gap()]).
+#'
+#' Requires augMultiSynth >= 0.3.6 when `band` is not NULL.
+#' @param ... Dotted-path overrides passed to [spec_modify()] after the design fields.
+#' @param band Integer half-width of the relative-adoption-week band, or NULL for no band.
+#' @param min_post Minimum unmasked post weeks a treated unit must have.
+#' @return A `bsc_spec`.
+#' @export
+spec_two_launch <- function(..., band = 2L, min_post = 8L) {
+  tl <- bsc_timeline()
+  s <- spec_default()
+  s$name <- "two_launch"
+  s <- spec_modify(s, "sample.design" = "two_launch", "sample.cohort" = "pilot",
+                   "sample.n_lags" = as.integer(tl$horizon$n_lags_pilot %||% 23L),
+                   "sc.donor_eligibility" = "global",
+                   "sample.two_launch" = list(min_post = as.integer(min_post)))
+  if (!is.null(band)) s <- spec_modify(s, "sc.donor_band" = as.integer(band))
+  spec_modify(s, ...)
+}
+
 #' The wide (default) and lean matching sets
 #'
 #' `match_outcomes_wide()` is the `match.out` vector of
@@ -256,6 +286,35 @@ spec_validate <- function(spec) {
   chk_int("post.gibbs.burn_in", 0L)
   wm <- .get_dotted(spec, "post.w_min")
   if (!is.null(wm) && (!is.numeric(wm) || wm < 0 || wm >= 1)) problems <- c(problems, "post.w_min must be in [0, 1)")
+
+  # ---- 0.6.0 optional fields (absent in older specs: defaults apply, run ids unchanged) ----
+  chk_int("sc.donor_band", 0L)
+  chk_int("sample.two_launch.min_post", 1L)
+  chk_int("post.heldout_weeks", 0L)
+  trc <- .get_dotted(spec, "post.tr_col")
+  if (!is.null(trc) && (!is.character(trc) || length(trc) != 1L || !nzchar(trc))) problems <- c(problems, "post.tr_col must be a single column name")
+  fx <- .get_dotted(spec, "post.f_X")
+  if (!is.null(fx)) {
+    f <- tryCatch(if (inherits(fx, "formula")) fx else stats::as.formula(as.character(fx)), error = function(e) NULL)
+    if (is.null(f)) problems <- c(problems, "post.f_X must be a one-sided formula such as '~ 1 + tau + heldout_block + budgetdummy'")
+    else {
+      if (length(f) == 3L) f <- f[-2L]
+      rhs <- attr(stats::terms(f), "term.labels"); tr <- trc %||% "budgetdummy"
+      if (!tr %in% rhs) problems <- c(problems, paste0("post.f_X must contain post.tr_col ('", tr, "')"))
+      known <- c("tau", "budgetdummy", "heldout_block", names(.get_dotted(spec, "post.windows") %||% list(win_0_7 = 1, win_8_20 = 1, win_21_40 = 1)))
+      unk <- setdiff(rhs, known)
+      if (length(unk)) problems <- c(problems, paste0("post.f_X term(s) not among the event-time regressors (", paste(known, collapse = ", "), "): ", paste(unk, collapse = ", ")))
+    }
+  }
+  pw <- .get_dotted(spec, "post.windows")
+  if (!is.null(pw) && (!is.list(pw) || is.null(names(pw)) || any(!vapply(pw, function(v) is.numeric(v) && length(v) == 2L && v[1] <= v[2], logical(1)))))
+    problems <- c(problems, "post.windows must be a named list of length-2 numeric ranges, e.g. list(win_0_7 = c(0, 7))")
+  if (identical(.get_dotted(spec, "sample.design"), "two_launch")) {
+    nlp <- tryCatch(bsc_timeline()$horizon$n_lags_pilot, error = function(e) NULL)
+    nl <- .get_dotted(spec, "sample.n_lags")
+    if (!is.null(nlp) && !is.null(nl) && nl > nlp)
+      problems <- c(problems, sprintf("two_launch: sample.n_lags = %d exceeds the weeks of data before the pilot start (timeline n_lags_pilot = %d); every pilot adopter would be dropped", nl, nlp))
+  }
 
   ni <- .get_dotted(spec, "post.gibbs.n_iter"); bi <- .get_dotted(spec, "post.gibbs.burn_in")
   if (!is.null(ni) && !is.null(bi) && bi >= ni)

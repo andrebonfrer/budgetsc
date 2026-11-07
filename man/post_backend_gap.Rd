@@ -2,7 +2,7 @@
 % Please edit documentation in R/post.R
 \name{post_backend_gap}
 \alias{post_backend_gap}
-\title{scmBayesPost backend on synthetic-control gaps (experimental)}
+\title{scmBayesPost backend on synthetic-control gaps}
 \usage{
 post_backend_gap(p, scfit, outcome, spec, lock = NULL)
 }
@@ -23,8 +23,25 @@ list(post, gdata_light).
 \description{
 Stage 2 on the gap series instead of the raw outcomes. For each treated unit
 the outcome is replaced by (unit outcome - weighted donor outcome) in the same
-calendar week, over the window \verb{T - L .. T + H}, indexed by event time, and
-the unit is regressed on \code{1 + treatment} alone (donors drop out; the weights
-were already used to form the gap). The hierarchical shrinkage and the
-moderator regression are those of \code{\link[=post_backend_scmbayes]{post_backend_scmbayes()}}.
+calendar week, over the window \code{T - L .. T + H}, indexed by event time, and
+the unit is regressed on the right-hand side of \code{post.f_X} (default
+\code{~ 1 + budgetdummy}, the behaviour before 0.6.0). The hierarchical shrinkage
+and the moderator regression are those of \code{\link[=post_backend_scmbayes]{post_backend_scmbayes()}}; the
+moderators act on the coefficient of \code{post.tr_col} (default \code{budgetdummy}).
+}
+\details{
+Event-time regressors available in \code{post.f_X} (all per unit; the hierarchical
+prior shrinks every coefficient other than the treatment one toward zero):
+\itemize{
+\item \code{tau}: event week (a unit-specific linear pre/post trend when included);
+\item \code{heldout_block}: 1 on the last \code{post.heldout_weeks} pre-adoption weeks
+(default \code{sc.match_end}; all zeros when that is 0), the weeks the SC fit did
+not use. Its coefficient is the held-out divergence, and including it keeps
+those weeks out of the baseline for the treatment coefficient;
+\item \code{win_0_7}, \code{win_8_20}, \code{win_21_40} (or the names in \code{post.windows}): post
+windows, for dynamics. To moderate one of them set \code{post.tr_col} to its name.
+}
+
+For the \code{two_launch} design, treated post weeks on or after the public launch
+are dropped (donors gain access then): \code{window$mask_wID} from the sample.
 }

@@ -15,10 +15,14 @@ summarise_run(run, formats = NULL)
 list of the tables, invisibly.
 }
 \description{
-Writes to \verb{tables/}: \code{outcome_table} (ATE mean/median/CI, dispersion,
+Writes to \code{tables/}: \code{outcome_table} (ATE mean/median/CI, dispersion,
 median unit effect, \% significantly positive/negative), \code{gamma_table}
 (moderator coefficients with CIs and BH q-values within each spec family),
 \code{unit_effects} (posterior mean/CI per treated unit and outcome),
-\code{event_time_ate} (Stage 1 gaps by event week). Files are streamed one
-outcome at a time so no two outcomes' draws are in memory together.
+\code{event_time_ate} (Stage 1 gaps by event week) and, when the Stage 2
+regression has more than the intercept and the treatment term (\code{post.f_X}),
+\code{coef_table}: the cross-unit average of every per-unit coefficient (the
+unit-specific trend \code{tau}, the held-out divergence \code{heldout_block}, the post
+windows) with its posterior interval. Files are streamed one outcome at a
+time so no two outcomes' draws are in memory together.
 }

@@ -126,14 +126,28 @@ post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
 }
 
 
-#' scmBayesPost backend on synthetic-control gaps (experimental)
+#' scmBayesPost backend on synthetic-control gaps
 #'
 #' Stage 2 on the gap series instead of the raw outcomes. For each treated unit
 #' the outcome is replaced by (unit outcome - weighted donor outcome) in the same
 #' calendar week, over the window `T - L .. T + H`, indexed by event time, and
-#' the unit is regressed on `1 + treatment` alone (donors drop out; the weights
-#' were already used to form the gap). The hierarchical shrinkage and the
-#' moderator regression are those of [post_backend_scmbayes()].
+#' the unit is regressed on the right-hand side of `post.f_X` (default
+#' `~ 1 + budgetdummy`, the behaviour before 0.6.0). The hierarchical shrinkage
+#' and the moderator regression are those of [post_backend_scmbayes()]; the
+#' moderators act on the coefficient of `post.tr_col` (default `budgetdummy`).
+#'
+#' Event-time regressors available in `post.f_X` (all per unit; the hierarchical
+#' prior shrinks every coefficient other than the treatment one toward zero):
+#' * `tau`: event week (a unit-specific linear pre/post trend when included);
+#' * `heldout_block`: 1 on the last `post.heldout_weeks` pre-adoption weeks
+#'   (default `sc.match_end`; all zeros when that is 0), the weeks the SC fit did
+#'   not use. Its coefficient is the held-out divergence, and including it keeps
+#'   those weeks out of the baseline for the treatment coefficient;
+#' * `win_0_7`, `win_8_20`, `win_21_40` (or the names in `post.windows`): post
+#'   windows, for dynamics. To moderate one of them set `post.tr_col` to its name.
+#'
+#' For the `two_launch` design, treated post weeks on or after the public launch
+#' are dropped (donors gain access then): `window$mask_wID` from the sample.
 #' @inheritParams post_backend_scmbayes
 #' @return list(post, gdata_light).
 #' @export
@@ -157,13 +171,26 @@ post_backend_gap <- function(p, scfit, outcome, spec, lock = NULL) {
   dta[, (outcome) := gap]
   dta[, wID := tau + L + 1L]                                   # event-time index 1..L+H+1 (last row = tau = H for everyone)
   dta[, budgetdummy := as.integer(tau >= 0L)]
+  ## event-time regressors for post.f_X (unused unless the formula names them; defaults reproduce `~ 1 + budgetdummy`)
+  hw <- as.integer(spec$post$heldout_weeks %||% spec$sc$match_end %||% 0L)
+  dta[, heldout_block := as.integer(hw > 0L & tau >= -hw & tau < 0L)]
+  win <- spec$post$windows %||% list(win_0_7 = c(0L, 7L), win_8_20 = c(8L, 20L), win_21_40 = c(21L, 40L))
+  for (nm in names(win)) dta[, (nm) := as.integer(tau >= win[[nm]][1] & tau <= win[[nm]][2])]
+  ## two-launch design: treated post weeks on or after the public launch are not used (the donors gain access then)
+  if (identical(spec$sample$design, "two_launch")) {
+    mask <- .mask_wID(spec)
+    n0 <- nrow(dta); dta <- dta[!(tau >= 0L & wID_cal >= mask)]
+    if (!is.null(lock)) lock_heartbeat(lock)
+    message(sprintf("two_launch: %d treated post weeks on/after the public launch (wID %d) masked", n0 - nrow(dta), mask))
+  }
   drop_ids <- .incomplete_moderator_units(dta, spec$post$f_Z)
   if (length(drop_ids)) dta <- dta[!customer_id %in% drop_ids]
   ids <- as.character(unique(dta$customer_id))
   W <- diag(length(ids)); dimnames(W) <- list(ids, ids)        # each unit is its own (only) pseudo-panel member
+  f_X <- .post_fX(spec, outcome); tr_col <- spec$post$tr_col %||% "budgetdummy"
   gdata <- scmBayesPost::prepare_data_general(
-    dta = dta, W = W, y_name = outcome, f.X = stats::reformulate(c("1", "budgetdummy"), response = outcome),
-    f.Z = .as_formula_checked(spec$post$f_Z, "post.f_Z"), id_col = "customer_id", time_col = "wID", tr_col = "budgetdummy",
+    dta = dta, W = W, y_name = outcome, f.X = f_X,
+    f.Z = .as_formula_checked(spec$post$f_Z, "post.f_Z"), id_col = "customer_id", time_col = "wID", tr_col = tr_col,
     treat_type = "binary", second_stage = "moderators", first_stage = spec$post$first_stage, verbose = FALSE)
   Z <- gdata$Z_block
   is_dummy <- apply(Z, 2, function(x) all(stats::na.omit(unique(x)) %in% c(0, 1)))
@@ -237,4 +264,24 @@ job_fun_default <- function() function(run, job, lock) {
   } else fit_post_one(run, job, lock)
 }
 
-utils::globalVariables(c("customer_id", "wID", "budgetdummy"))
+# Right-hand side of the per-unit Stage 2 regression as a two-sided formula for the outcome.
+# `post.f_X` may be a one-sided formula or string ("~ 1 + tau + heldout_block + budgetdummy"); NULL = "~ 1 + budgetdummy".
+.post_fX <- function(spec, outcome) {
+  fx <- spec$post$f_X
+  if (is.null(fx)) return(stats::reformulate(c("1", "budgetdummy"), response = outcome))
+  f <- if (inherits(fx, "formula")) fx else stats::as.formula(as.character(fx))
+  if (length(f) == 3L) f <- f[-2L]                              # drop a response if one was given
+  rhs <- attr(stats::terms(f), "term.labels")
+  int <- attr(stats::terms(f), "intercept") == 1L
+  tr_col <- spec$post$tr_col %||% "budgetdummy"
+  if (!tr_col %in% rhs) stop("post.f_X must contain post.tr_col ('", tr_col, "'); it has: ", paste(rhs, collapse = ", "), call. = FALSE)
+  stats::reformulate(c(if (int) "1" else "0", rhs), response = outcome)
+}
+
+# First masked calendar week for the two-launch design: the public launch (from the timeline).
+.mask_wID <- function(spec) {
+  tl <- bsc_timeline()
+  first_week_on_or_after(tl$events$public_launch, tl$origin)
+}
+
+utils::globalVariables(c("customer_id", "wID", "budgetdummy", "wID_cal", "heldout_block", "tau"))
