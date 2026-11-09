@@ -134,6 +134,35 @@ spec_two_launch <- function(..., band = 2L, min_post = 8L) {
   spec_modify(s, ...)
 }
 
+#' Onboarding-intent specification (ramp-up comparison)
+#'
+#' [spec_main()] with `sample.design = "onboarding_intent"`: among customers who
+#' began onboarding the budgeting feature, treated = adopters who set a budget
+#' within `max_lag_days` of their first onboarding, donors = partial onboarders
+#' (never set a budget) and adopters who set one more than `late_min_days` after
+#' onboarding (untreated over the weeks used). With `band`, each treated unit's
+#' donors began onboarding within +/- `band` weeks of it (`sc.donor_band_on =
+#' "onboard"`), so twins are drawn from customers who sought the tool at the same
+#' time and, through the matching, followed the same pre-onboarding trajectory.
+#' The panel must carry a per-customer `onboard_wID` (first onboarding week) and
+#' may carry `onboard_lag_days`.
+#'
+#' Requires augMultiSynth >= 0.3.6 when `band` is not NULL.
+#' @param ... Dotted-path overrides passed to [spec_modify()] after the design fields.
+#' @param band Integer half-width of the onboarding-week band, or NULL for no band (per-unit eligibility then applies).
+#' @param max_lag_days Maximum days from first onboarding to first budget for a treated unit.
+#' @param late_min_days Minimum days from first onboarding to first budget for an adopter to serve as a donor.
+#' @return A `bsc_spec`.
+#' @export
+spec_onboarding_intent <- function(..., band = 2L, max_lag_days = 7L, late_min_days = 56L) {
+  s <- spec_default()
+  s$name <- "onboarding_intent"
+  s <- spec_modify(s, "sample.design" = "onboarding_intent", "sc.donor_eligibility" = "per_unit",
+                   "sample.onboarding_intent" = list(max_lag_days = as.integer(max_lag_days), late_min_days = as.integer(late_min_days)))
+  if (!is.null(band)) s <- spec_modify(s, "sc.donor_band" = as.integer(band), "sc.donor_band_on" = "onboard")
+  spec_modify(s, ...)
+}
+
 #' The wide (default) and lean matching sets
 #'
 #' `match_outcomes_wide()` is the `match.out` vector of
@@ -265,7 +294,8 @@ spec_validate <- function(spec) {
   }
 
   chk_enum("sample.design", c("later_adopters", "partial_onboarders", "non_onboarders",
-                              "cohort_window", "two_launch", "placebo_dates"))
+                              "cohort_window", "two_launch", "onboarding_intent", "placebo_dates"))
+  chk_enum("sc.donor_band_on", c("relative_adoption", "onboard"))
   chk_enum("sample.cohort", c("public", "pilot"))
   chk_enum("sample.treat_start", c("containing_week", "next_week"))
   chk_enum("sample.donor_sampling.method", c("none", "stratified", "random"))
@@ -290,6 +320,12 @@ spec_validate <- function(spec) {
   # ---- 0.6.0 optional fields (absent in older specs: defaults apply, run ids unchanged) ----
   chk_int("sc.donor_band", 0L)
   chk_int("sample.two_launch.min_post", 1L)
+  chk_int("sample.onboarding_intent.max_lag_days", 0L)
+  chk_int("sample.onboarding_intent.late_min_days", 0L)
+  if (identical(.get_dotted(spec, "sc.donor_band_on"), "onboard") && !identical(.get_dotted(spec, "sample.design"), "onboarding_intent"))
+    problems <- c(problems, "sc.donor_band_on = 'onboard' is only defined for sample.design = 'onboarding_intent'")
+  mlg <- .get_dotted(spec, "sample.onboarding_intent.max_lag_days"); lmn <- .get_dotted(spec, "sample.onboarding_intent.late_min_days")
+  if (!is.null(mlg) && !is.null(lmn) && lmn < mlg) problems <- c(problems, "sample.onboarding_intent: late_min_days must be >= max_lag_days")
   chk_int("post.heldout_weeks", 0L)
   trc <- .get_dotted(spec, "post.tr_col")
   if (!is.null(trc) && (!is.character(trc) || length(trc) != 1L || !nzchar(trc))) problems <- c(problems, "post.tr_col must be a single column name")

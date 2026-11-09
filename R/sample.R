@@ -21,6 +21,16 @@
 #' the relative-adoption-week band (`sc.donor_band`). Use `sample.n_lags` no larger
 #' than the weeks of data before the pilot start (timeline `n_lags_pilot`).
 #'
+#' From 0.6.0 also `onboarding_intent` (helper [spec_onboarding_intent()]): among
+#' customers who began onboarding, treated = adopters who set a budget within
+#' `sample.onboarding_intent$max_lag_days` (default 7) of their first onboarding;
+#' donors = partial onboarders (donor code 1) and adopters who set a budget more
+#' than `late_min_days` (default 56) after onboarding, the latter keeping their
+#' real adoption week. Adopters in between are excluded. Needs a per-customer
+#' `onboard_wID` column (and optionally `onboard_lag_days`). With `sc.donor_band`,
+#' donors are restricted to those whose first onboarding falls within the band of
+#' the treated unit's, and late adopters must adopt after its post window.
+#'
 #' Cohort membership and donor/treated roles are decided on the REAL first-budget
 #' date. For `placebo_dates` with `units = "treated"` only the units that are
 #' treated in the base design have their onset shifted; later adopters keep their
@@ -68,7 +78,26 @@ define_sample <- function(p, spec) {
 
   # ---- cohort restriction and launch date ---------------------------------------
   mask_wID <- NA_integer_
-  if (design == "two_launch") {
+  if (design == "onboarding_intent") {
+    if (!"onboard_wID" %in% names(x))
+      stop("design 'onboarding_intent' needs a per-customer onboard_wID column (first onboarding week); build the panel with onboarding dates", call. = FALSE)
+    oi <- s$onboarding_intent %||% list()
+    max_lag <- as.numeric(oi$max_lag_days %||% 7); late_min <- as.numeric(oi$late_min_days %||% 56)
+    x <- x[donor %in% c(0L, 1L)]
+    note("adopters and partial onboarders (onboarding-intent design)", x$customer_id)
+    x <- x[!is.na(onboard_wID)]
+    note("with a first-onboarding week", x$customer_id)
+    if ("onboard_lag_days" %in% names(x)) x[, lag_ := as.numeric(onboard_lag_days)]
+    else x[, lag_ := 7 * (week_of(real_minBudgetDate, tl$origin) - onboard_wID)]
+    x[, intent_role := data.table::fcase(donor == 1L, "donor",
+                                         !is.na(real_minBudgetDate) & lag_ <= max_lag, "treated",
+                                         !is.na(real_minBudgetDate) & lag_ > late_min, "donor",
+                                         default = "excluded")]
+    x <- x[intent_role != "excluded"]
+    note(sprintf("treated: adopted within %g days of first onboarding; donors: partial onboarders and adopters more than %g days after onboarding", max_lag, late_min), x$customer_id)
+    first_tr <- x[intent_role == "treated", min(week_of(real_minBudgetDate, tl$origin))]
+    launch_date <- tl$origin + 7L * (first_tr - 1L)
+  } else if (design == "two_launch") {
     pilot_start <- tl$events$pilot_start %||% x[real_minBudgetDate < public_launch, min(real_minBudgetDate, na.rm = TRUE)]
     x <- x[donor == 0L]                                   # budget setters only: pilot adopters (treated) and public-launch adopters (donors)
     note("budget setters only (two-launch design)", x$customer_id)
@@ -111,6 +140,12 @@ define_sample <- function(p, spec) {
     late <- x[donor == 0L & week_of(minBudgetDate, tl$origin) > mask_wID - min_post, unique(customer_id)]
     x <- x[!customer_id %in% late]
     note(sprintf("treated with >= %d post weeks before the public launch", min_post), x$customer_id)
+  } else if (design == "onboarding_intent") {
+    # late adopters keep their REAL adoption date so fit_sc() can require it to fall after each treated unit's post window
+    x[, real_onset_date := data.table::fifelse(intent_role == "donor" & !is.na(real_minBudgetDate), real_minBudgetDate, as.Date(NA))]
+    x[intent_role == "donor", minBudgetDate := as.Date(NA)]
+    x[, donor := data.table::fifelse(intent_role == "treated", 0L, 1L)]
+    x[, c("intent_role", "lag_") := NULL]
   } else if (design %in% c("partial_onboarders", "non_onboarders")) {
     want <- if (design == "partial_onboarders") 1L else 2L
     x <- x[donor %in% c(0L, want)]
@@ -183,7 +218,8 @@ define_sample <- function(p, spec) {
   }
 
   # ---- ids and treatment weeks ------------------------------------------------------
-  ids <- unique(x[, .(customer_id, donor, minBudgetDate, treat_wID, real_onset_date)])
+  ids <- unique(x[, intersect(c("customer_id", "donor", "minBudgetDate", "treat_wID", "real_onset_date", "onboard_wID"), names(x)), with = FALSE])
+  if (anyDuplicated(ids$customer_id)) stop("onboard_wID must be constant within customer", call. = FALSE)
   ids[, role := data.table::fifelse(donor == 0L, "treated", "donor")]
   ids[, cohort := cohort]
   ids[, real_onset_wID := week_of(real_onset_date, tl$origin) +
@@ -199,7 +235,7 @@ define_sample <- function(p, spec) {
 
   x[, real_minBudgetDate := NULL]
   structure(list(
-    ids = ids[, .(customer_id, role, cohort, treat_wID, minBudgetDate, real_onset_wID)],
+    ids = ids[, intersect(c("customer_id", "role", "cohort", "treat_wID", "minBudgetDate", "real_onset_wID", "onboard_wID"), names(ids)), with = FALSE],
     window = list(L = L, H = H, match_end = as.integer(spec$sc$match_end),
                   launch_date = launch_date, launch_wID = launch_wID, truncate_wID = truncate_wID,
                   public_launch_wID = public_launch_wID, mask_wID = mask_wID),
@@ -294,7 +330,7 @@ print.bsc_sample <- function(x, ...) {
   invisible(x)
 }
 
-utils::globalVariables(c("real_onset_date", "real_onset_wID", "real_minBudgetDate", "i.pseudo", "pseudo", "minBudgetDate", "donor", "onboarddate", "budgetdummy", "pre_weeks",
+utils::globalVariables(c("real_onset_date", "real_onset_wID", "real_minBudgetDate", "onboard_wID", "onboard_lag_days", "intent_role", "lag_", "i.pseudo", "pseudo", "minBudgetDate", "donor", "onboarddate", "budgetdummy", "pre_weeks",
   "pre_spend_sum", "pre_income_sum", "pre_spend_pct_income", "budgetcategoriesN", "n_cats",
   "treat_wID", "real_onset_date", "real_onset_wID", "spend_mean", "spend_pct_income", "has_homeloan", "log_spend_mean", "str_sp",
   "str_ls", "strata", "share", "n_target", "i.n_target", "N", "cohort"))

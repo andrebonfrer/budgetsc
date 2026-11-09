@@ -86,6 +86,12 @@ fit_sc <- function(run, backend = NULL) {
   Yprep <- build_Ylist(p, outcomes)
   elig <- spec$sc$donor_eligibility %||% "global"          # runs registered before 0.5.0 have no field: old behaviour
   two_launch <- identical(spec$sample$design, "two_launch")
+  intent <- identical(spec$sample$design, "onboarding_intent")
+  if (intent && !is.null(spec$sc$donor_band) && identical(elig, "per_unit")) {
+    # the onboarding band below also enforces that late-adopting donors adopt after each treated unit's post window
+    bsc_log(run, "onboarding_intent with sc.donor_band: eligibility enforced inside the band; using 'global' coding for the fit")
+    elig <- "global"
+  }
   if (two_launch && identical(elig, "per_unit")) {
     # public-launch donors have no access before the public launch, and the post stage masks treated weeks from
     # that launch on, so every donor is untreated throughout the weeks that are used: the per-unit rule would only
@@ -119,17 +125,29 @@ fit_sc <- function(run, backend = NULL) {
   }
   # two-launch design with a relative-adoption-week band: each pilot adopter (k weeks after the pilot start) draws its
   # donors from public-launch adopters adopting k +/- band weeks after the public launch (checklist item 1)
+  # onboarding-intent design with an onboarding-week band: donors began onboarding within +/- band weeks of the treated
+  # unit's first onboarding, and any donor that later adopted did so after the treated unit's post window (sc.donor_band_on)
   donors_list <- NULL
   band <- spec$sc$donor_band
-  if (two_launch && !is.null(band)) {
+  band_on <- spec$sc$donor_band_on %||% (if (intent) "onboard" else "relative_adoption")
+  if ((two_launch || intent) && !is.null(band)) {
     band <- as.integer(band); w <- sample$window; uv <- as.character(Yprep$unit_vals)
-    if (is.null(w$public_launch_wID)) stop("sample.rds lacks public_launch_wID; re-run run_sample() with budgetsc >= 0.6.0 for the donor band", call. = FALSE)
-    don <- sample$ids[role == "donor" & !is.na(real_onset_wID)]
-    k_don <- don$real_onset_wID - w$public_launch_wID
     trt <- sample$ids[role == "treated"]
-    k_tr <- trt$treat_wID - w$launch_wID
-    donors_list <- lapply(seq_len(nrow(trt)), function(i) {
-      idx <- match(as.character(don$customer_id[abs(k_don - k_tr[i]) <= band]), uv); idx[!is.na(idx)] })
+    if (identical(band_on, "onboard")) {
+      if (!"onboard_wID" %in% names(sample$ids)) stop("sc.donor_band_on = 'onboard' needs onboard_wID in the sample; build the panel with onboarding dates and re-run run_sample()", call. = FALSE)
+      don <- sample$ids[role == "donor" & !is.na(onboard_wID)]
+      donors_list <- lapply(seq_len(nrow(trt)), function(i) {
+        ok <- !is.na(trt$onboard_wID[i]) & abs(don$onboard_wID - trt$onboard_wID[i]) <= band &
+              (is.na(don$real_onset_wID) | don$real_onset_wID > trt$treat_wID[i] + H)
+        idx <- match(as.character(don$customer_id[ok]), uv); idx[!is.na(idx)] })
+    } else {
+      if (is.null(w$public_launch_wID)) stop("sample.rds lacks public_launch_wID; re-run run_sample() with budgetsc >= 0.6.0 for the donor band", call. = FALSE)
+      don <- sample$ids[role == "donor" & !is.na(real_onset_wID)]
+      k_don <- don$real_onset_wID - w$public_launch_wID
+      k_tr <- trt$treat_wID - w$launch_wID
+      donors_list <- lapply(seq_len(nrow(trt)), function(i) {
+        idx <- match(as.character(don$customer_id[abs(k_don - k_tr[i]) <= band]), uv); idx[!is.na(idx)] })
+    }
     names(donors_list) <- as.character(trt$customer_id)
     min_d <- as.integer(spec$sc$min_eligible_donors %||% 20L)
     n_band <- lengths(donors_list)
@@ -140,11 +158,11 @@ fit_sc <- function(run, backend = NULL) {
       data.table::fwrite(data.table::data.table(customer_id = names(donors_list)[n_band < min_d], donors_in_band = n_band[n_band < min_d], required = min_d),
                          file.path(run$dir, "tables", "sc_units_without_donors.csv"))
       bsc_log(run, sum(n_band < min_d), " of ", length(n_band), " treated unit(s) set aside: fewer than ", min_d,
-              " public-launch adopters within ", band, " weeks of their relative adoption week (tables/sc_units_without_donors.csv)")
+              " donors within ", band, " weeks (", band_on, " band; tables/sc_units_without_donors.csv)")
     }
     treated_units <- match(keep_ids, uv); treated_units <- treated_units[!is.na(treated_units)]
     donors_list <- donors_list[keep_ids]
-    bsc_log(run, "relative-week donor band +/-", band, ": median ", stats::median(n_band[n_band >= min_d]), " candidate donors per treated unit")
+    bsc_log(run, band_on, " donor band +/-", band, ": median ", stats::median(n_band[n_band >= min_d]), " candidate donors per treated unit")
   }
   fun <- backend %||% switch(spec$sc$backend %||% "augmultisynth",
                               augmultisynth = sc_backend_augmultisynth,

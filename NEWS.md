@@ -9,6 +9,14 @@ so `spec_main()` still hashes to the same id.
   SC fit (a `per_unit` eligibility setting is ignored with a log line), treated post weeks on or after the public launch
   are dropped in `post_backend_gap()` (`window$mask_wID`), and treated units with fewer than `sample.two_launch$min_post`
   (default 8) unmasked post weeks are dropped. `sample.n_lags` must not exceed the timeline's `n_lags_pilot` (validated).
+* **`sample.design = "onboarding_intent"`** (`define_sample()`, helper `spec_onboarding_intent(band, max_lag_days, late_min_days)`):
+  among customers who began onboarding, treated = adopters who set a budget within `max_lag_days` (default 7) of their
+  first onboarding; donors = partial onboarders and adopters who set a budget more than `late_min_days` (default 56)
+  after onboarding (keeping their real adoption week); adopters in between excluded. Needs a per-customer
+  `onboard_wID` (and optionally `onboard_lag_days`) in the panel; `sample$ids` carries `onboard_wID` when present.
+* **`sc.donor_band_on`** (`"relative_adoption"`, the two-launch default, or `"onboard"`, the onboarding-intent
+  default): with `"onboard"`, each treated unit's candidate donors began onboarding within +/- `sc.donor_band` weeks of
+  it, and any donor that later adopted did so after the treated unit's post window.
 * **`sc.donor_band`**: for `two_launch`, each pilot adopter adopting k weeks after the pilot start draws its donors from
   public-launch adopters adopting k +/- band weeks after the public launch (checklist item 1, "pilot week 1 vs public
   week 1"). Units with fewer than `sc.min_eligible_donors` donors in the band are set aside and listed in

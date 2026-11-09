@@ -33,6 +33,16 @@ post stage (\code{window$mask_wID}); treated units with fewer than
 keep their real adoption week in \code{real_onset_wID}, which \code{fit_sc()} uses for
 the relative-adoption-week band (\code{sc.donor_band}). Use \code{sample.n_lags} no larger
 than the weeks of data before the pilot start (timeline \code{n_lags_pilot}).
+
+From 0.6.0 also \code{onboarding_intent} (helper \code{\link[=spec_onboarding_intent]{spec_onboarding_intent()}}): among
+customers who began onboarding, treated = adopters who set a budget within
+\code{sample.onboarding_intent$max_lag_days} (default 7) of their first onboarding;
+donors = partial onboarders (donor code 1) and adopters who set a budget more
+than \code{late_min_days} (default 56) after onboarding, the latter keeping their
+real adoption week. Adopters in between are excluded. Needs a per-customer
+\code{onboard_wID} column (and optionally \code{onboard_lag_days}). With \code{sc.donor_band},
+donors are restricted to those whose first onboarding falls within the band of
+the treated unit's, and late adopters must adopt after its post window.
 }
 \details{
 Cohort membership and donor/treated roles are decided on the REAL first-budget
