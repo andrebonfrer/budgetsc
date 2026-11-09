@@ -13,11 +13,42 @@ define_sample(p, spec)
 }
 \value{
 A list of class \code{bsc_sample}: \code{ids} (customer_id, role, cohort,
-treat_wID, minBudgetDate), \code{window} (L, H, match_end, launch_wID,
-truncate_wID, launch_date), \code{funnel} (data.table of filter steps and
-counts), and \code{panel} (rows for the kept customers, with \code{budgetdummy}
-and \code{donor} recoded for the design).
+treat_wID, minBudgetDate, real_onset_wID), \code{window} (L, H, match_end,
+launch_wID, truncate_wID, launch_date, public_launch_wID, mask_wID: NA unless
+\code{two_launch}), \code{funnel} (data.table of filter steps and counts), and \code{panel}
+(rows for the kept customers, with \code{budgetdummy} and \code{donor} recoded for the
+design).
 }
 \description{
-Define the analysis sample for a run
+Designs: \code{later_adopters} (treated = adopters in the cohort window, donors =
+setters adopting after launch + H), \code{partial_onboarders} / \code{non_onboarders}
+(donor pools 1 / 2), \code{placebo_dates} (a base design with shifted onsets) and,
+from 0.6.0, \code{two_launch}: treated = pilot-period adopters (first budget on or
+after the pilot start and before the public launch), donors = public-launch
+adopters, who have no access to the feature before the public launch and are
+therefore untreated throughout the part of every treated unit's post window
+that lies before it. Post weeks on or after the public launch are masked in the
+post stage (\code{window$mask_wID}); treated units with fewer than
+\code{sample.two_launch$min_post} (default 8) unmasked post weeks are dropped. Donors
+keep their real adoption week in \code{real_onset_wID}, which \code{fit_sc()} uses for
+the relative-adoption-week band (\code{sc.donor_band}). Use \code{sample.n_lags} no larger
+than the weeks of data before the pilot start (timeline \code{n_lags_pilot}).
+
+From 0.6.0 also \code{onboarding_intent} (helper \code{\link[=spec_onboarding_intent]{spec_onboarding_intent()}}): among
+customers who began onboarding, treated = adopters who set a budget within
+\code{sample.onboarding_intent$max_lag_days} (default 7) of their first onboarding;
+donors = partial onboarders (donor code 1) and adopters who set a budget more
+than \code{late_min_days} (default 56) after onboarding, the latter keeping their
+real adoption week. Adopters in between are excluded. Needs a per-customer
+\code{onboard_wID} column (and optionally \code{onboard_lag_days}). With \code{sc.donor_band},
+donors are restricted to those whose first onboarding falls within the band of
+the treated unit's, and late adopters must adopt after its post window.
+}
+\details{
+Cohort membership and donor/treated roles are decided on the REAL first-budget
+date. For \code{placebo_dates} with \code{units = "treated"} only the units that are
+treated in the base design have their onset shifted; later adopters keep their
+real dates and remain donors (before 0.6.0 the cohort filter was applied to the
+shifted dates, which dropped real adopters and promoted later adopters to
+pseudo-treated).
 }

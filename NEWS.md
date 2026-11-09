@@ -1,3 +1,42 @@
+# budgetsc 0.6.0
+
+The reviewers' two-launch identification design, a richer per-unit Stage 2, and a placebo fix. Existing specs,
+run ids and results are unchanged: every new field is optional and read with a default equal to the 0.5.1 behaviour,
+so `spec_main()` still hashes to the same id.
+
+* **`sample.design = "two_launch"`** (`define_sample()`, helper `spec_two_launch()`): treated = pilot-period adopters,
+  donors = public-launch adopters, who have no access before the public launch. Donors are coded never-treated for the
+  SC fit (a `per_unit` eligibility setting is ignored with a log line), treated post weeks on or after the public launch
+  are dropped in `post_backend_gap()` (`window$mask_wID`), and treated units with fewer than `sample.two_launch$min_post`
+  (default 8) unmasked post weeks are dropped. `sample.n_lags` must not exceed the timeline's `n_lags_pilot` (validated).
+* **`sample.design = "onboarding_intent"`** (`define_sample()`, helper `spec_onboarding_intent(band, max_lag_days, late_min_days)`):
+  among customers who began onboarding, treated = adopters who set a budget within `max_lag_days` (default 7) of their
+  first onboarding; donors = partial onboarders and adopters who set a budget more than `late_min_days` (default 56)
+  after onboarding (keeping their real adoption week); adopters in between excluded. Needs a per-customer
+  `onboard_wID` (and optionally `onboard_lag_days`) in the panel; `sample$ids` carries `onboard_wID` when present.
+* **`sc.donor_band_on`** (`"relative_adoption"`, the two-launch default, or `"onboard"`, the onboarding-intent
+  default): with `"onboard"`, each treated unit's candidate donors began onboarding within +/- `sc.donor_band` weeks of
+  it, and any donor that later adopted did so after the treated unit's post window.
+* **`sc.donor_band`**: for `two_launch`, each pilot adopter adopting k weeks after the pilot start draws its donors from
+  public-launch adopters adopting k +/- band weeks after the public launch (checklist item 1, "pilot week 1 vs public
+  week 1"). Units with fewer than `sc.min_eligible_donors` donors in the band are set aside and listed in
+  `tables/sc_units_without_donors.csv`. Needs augMultiSynth >= 0.3.6 (`multiout_synth(donors_list = )`).
+* **`post.f_X`, `post.tr_col`, `post.heldout_weeks`, `post.windows`**: the per-unit Stage 2 regression in
+  `post_backend_gap()` can now include `tau` (unit-specific linear trend), `heldout_block` (the last `post.heldout_weeks`
+  pre weeks, default `sc.match_end`: its coefficient is the held-out divergence and the treatment baseline then excludes
+  those weeks) and post windows `win_0_7`, `win_8_20`, `win_21_40`. Moderators act on `post.tr_col` (default
+  `budgetdummy`). Default `post.f_X = NULL` reproduces `~ 1 + budgetdummy` exactly. Formula terms are validated.
+* **Placebo fix** (`placebo_dates`, `units = "treated"`): cohort membership and donor/treated roles are now decided on the
+  real first-budget date, and only the base design's treated units have their onset shifted. Before, the public-cohort
+  filter ran on the shifted dates, which dropped the real adopters and promoted later adopters (shifted into the window)
+  to pseudo-treated. Placebo runs registered under 0.5.x should be re-registered; their ids differ because the spec is
+  unchanged only in content, not in result (use a new `name`).
+* `window` gains `public_launch_wID` and `mask_wID` (NA except for `two_launch`).
+* `summarise_run()` writes `tables/coef_table.csv` when `post.f_X` has more than the intercept and the treatment term: the
+  cross-unit average of each per-unit coefficient (`tau` trend, `heldout_block` divergence, post windows) with its interval.
+* `sc_backend_stub()` accepts `donors_list` (ignored). `sc_event_time_ate()` is not masked for `two_launch`; use the post
+  stage or the grid for that design's event-time effects.
+
 # budgetsc 0.5.1
 
 * **Parallel SC fits on augMultiSynth 0.3.4.** `sc.parallel = TRUE` was only honoured by versions with a

@@ -85,6 +85,20 @@ fit_sc <- function(run, backend = NULL) {
   outcomes <- spec$sc$match_outcomes
   Yprep <- build_Ylist(p, outcomes)
   elig <- spec$sc$donor_eligibility %||% "global"          # runs registered before 0.5.0 have no field: old behaviour
+  two_launch <- identical(spec$sample$design, "two_launch")
+  intent <- identical(spec$sample$design, "onboarding_intent")
+  if (intent && !is.null(spec$sc$donor_band) && identical(elig, "per_unit")) {
+    # the onboarding band below also enforces that late-adopting donors adopt after each treated unit's post window
+    bsc_log(run, "onboarding_intent with sc.donor_band: eligibility enforced inside the band; using 'global' coding for the fit")
+    elig <- "global"
+  }
+  if (two_launch && identical(elig, "per_unit")) {
+    # public-launch donors have no access before the public launch, and the post stage masks treated weeks from
+    # that launch on, so every donor is untreated throughout the weeks that are used: the per-unit rule would only
+    # remove early public adopters for no reason. Donors are coded never-treated for the fit.
+    bsc_log(run, "two_launch design: donor eligibility 'per_unit' ignored (donors are untreated before the public launch); using 'global'")
+    elig <- "global"
+  }
   per_unit <- identical(elig, "per_unit")
   ti <- .treat_time_index(sample, Yprep$unit_vals, Yprep$time_vals, per_unit = per_unit)
   tt <- ti$treat_time; tr_idx <- ti$treated_idx
@@ -109,12 +123,54 @@ fit_sc <- function(run, backend = NULL) {
               " donors adopt more than H weeks after them (tables/sc_units_without_donors.csv)")
     }
   }
+  # two-launch design with a relative-adoption-week band: each pilot adopter (k weeks after the pilot start) draws its
+  # donors from public-launch adopters adopting k +/- band weeks after the public launch (checklist item 1)
+  # onboarding-intent design with an onboarding-week band: donors began onboarding within +/- band weeks of the treated
+  # unit's first onboarding, and any donor that later adopted did so after the treated unit's post window (sc.donor_band_on)
+  donors_list <- NULL
+  band <- spec$sc$donor_band
+  band_on <- spec$sc$donor_band_on %||% (if (intent) "onboard" else "relative_adoption")
+  if ((two_launch || intent) && !is.null(band)) {
+    band <- as.integer(band); w <- sample$window; uv <- as.character(Yprep$unit_vals)
+    trt <- sample$ids[role == "treated"]
+    if (identical(band_on, "onboard")) {
+      if (!"onboard_wID" %in% names(sample$ids)) stop("sc.donor_band_on = 'onboard' needs onboard_wID in the sample; build the panel with onboarding dates and re-run run_sample()", call. = FALSE)
+      don <- sample$ids[role == "donor" & !is.na(onboard_wID)]
+      donors_list <- lapply(seq_len(nrow(trt)), function(i) {
+        ok <- !is.na(trt$onboard_wID[i]) & abs(don$onboard_wID - trt$onboard_wID[i]) <= band &
+              (is.na(don$real_onset_wID) | don$real_onset_wID > trt$treat_wID[i] + H)
+        idx <- match(as.character(don$customer_id[ok]), uv); idx[!is.na(idx)] })
+    } else {
+      if (is.null(w$public_launch_wID)) stop("sample.rds lacks public_launch_wID; re-run run_sample() with budgetsc >= 0.6.0 for the donor band", call. = FALSE)
+      don <- sample$ids[role == "donor" & !is.na(real_onset_wID)]
+      k_don <- don$real_onset_wID - w$public_launch_wID
+      k_tr <- trt$treat_wID - w$launch_wID
+      donors_list <- lapply(seq_len(nrow(trt)), function(i) {
+        idx <- match(as.character(don$customer_id[abs(k_don - k_tr[i]) <= band]), uv); idx[!is.na(idx)] })
+    }
+    names(donors_list) <- as.character(trt$customer_id)
+    min_d <- as.integer(spec$sc$min_eligible_donors %||% 20L)
+    n_band <- lengths(donors_list)
+    keep_ids <- names(donors_list)[n_band >= min_d]
+    if (!length(keep_ids)) stop("no treated unit has >= ", min_d, " donors inside the relative-week band (sc.donor_band = ", band, "); widen the band.", call. = FALSE)
+    if (any(n_band < min_d)) {
+      dir.create(file.path(run$dir, "tables"), showWarnings = FALSE)
+      data.table::fwrite(data.table::data.table(customer_id = names(donors_list)[n_band < min_d], donors_in_band = n_band[n_band < min_d], required = min_d),
+                         file.path(run$dir, "tables", "sc_units_without_donors.csv"))
+      bsc_log(run, sum(n_band < min_d), " of ", length(n_band), " treated unit(s) set aside: fewer than ", min_d,
+              " donors within ", band, " weeks (", band_on, " band; tables/sc_units_without_donors.csv)")
+    }
+    treated_units <- match(keep_ids, uv); treated_units <- treated_units[!is.na(treated_units)]
+    donors_list <- donors_list[keep_ids]
+    bsc_log(run, band_on, " donor band +/-", band, ": median ", stats::median(n_band[n_band >= min_d]), " candidate donors per treated unit")
+  }
   fun <- backend %||% switch(spec$sc$backend %||% "augmultisynth",
                               augmultisynth = sc_backend_augmultisynth,
                               stub = sc_backend_stub,
                               stop("unknown sc backend"))
   args <- list(Yprep$Y_list, tt_fit, Yprep$unit_vals, L = L, K = H, spec = spec)
   if (!is.null(treated_units)) args$treated_units <- treated_units
+  if (!is.null(donors_list)) args$donors_list <- donors_list
   fit <- do.call(fun, args)
   fit$outcomes <- outcomes; fit$L <- L; fit$K <- H; fit$match_end <- me
   fit$treat_time <- tt; fit$unit_ids <- Yprep$unit_vals
@@ -140,9 +196,11 @@ fit_sc <- function(run, backend = NULL) {
 #' @param L,K Lags and leads.
 #' @param spec The run spec (for `sc` options).
 #' @param treated_units Optional integer indices of the treated units. When given, units with a finite `treat_time` that are not listed are donors that adopt later, and augMultiSynth's eligibility rule applies per treated unit.
+#' @param donors_list Optional per-unit candidate donor sets (list keyed by treated unit id, unit indices), passed to
+#'   `multiout_synth(donors_list = )` (augMultiSynth >= 0.3.6).
 #' @return Fit object satisfying the contract in `sc.R`.
 #' @export
-sc_backend_augmultisynth <- function(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL) {
+sc_backend_augmultisynth <- function(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL, donors_list = NULL) {
   if (!requireNamespace("augMultiSynth", quietly = TRUE))
     stop("augMultiSynth is not installed; use spec$sc$backend = 'stub' for a dry run.", call. = FALSE)
   sc <- spec$sc
@@ -169,6 +227,10 @@ sc_backend_augmultisynth <- function(Y_list, treat_time, unit_ids, L, K, spec, t
   if (!is.null(treated_units)) {
     if (!"treated_units" %in% fm) stop("per-unit donor eligibility needs an augMultiSynth whose multiout_synth() has a treated_units argument.", call. = FALSE)
     args$treated_units <- treated_units
+  }
+  if (!is.null(donors_list)) {
+    if (!"donors_list" %in% fm) stop("sc.donor_band needs augMultiSynth >= 0.3.6 (multiout_synth() with a donors_list argument).", call. = FALSE)
+    args$donors_list <- donors_list
   }
   args <- args[names(args) %in% fm]
   do.call(augMultiSynth::multiout_synth, args)
@@ -201,8 +263,9 @@ sc_weight_matrix <- function(fit, unit_ids) {
 #' model packages. Not for inference. Honours per-unit eligibility when
 #' `treated_units` is given.
 #' @inheritParams sc_backend_augmultisynth
+#' @param donors_list Accepted for interface compatibility; ignored.
 #' @export
-sc_backend_stub <- function(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL) {
+sc_backend_stub <- function(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL, donors_list = NULL) {   # donors_list accepted, ignored
   ids <- as.character(unit_ids)
   per_unit <- !is.null(treated_units)
   tr <- treated_units %||% which(is.finite(treat_time))

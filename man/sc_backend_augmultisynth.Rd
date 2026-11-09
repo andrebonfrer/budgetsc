@@ -11,7 +11,8 @@ sc_backend_augmultisynth(
   L,
   K,
   spec,
-  treated_units = NULL
+  treated_units = NULL,
+  donors_list = NULL
 )
 }
 \arguments{
@@ -22,6 +23,9 @@ sc_backend_augmultisynth(
 \item{spec}{The run spec (for \code{sc} options).}
 
 \item{treated_units}{Optional integer indices of the treated units. When given, units with a finite \code{treat_time} that are not listed are donors that adopt later, and augMultiSynth's eligibility rule applies per treated unit.}
+
+\item{donors_list}{Optional per-unit candidate donor sets (list keyed by treated unit id, unit indices), passed to
+\code{multiout_synth(donors_list = )} (augMultiSynth >= 0.3.6).}
 }
 \value{
 Fit object satisfying the contract in \code{sc.R}.

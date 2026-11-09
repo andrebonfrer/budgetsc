@@ -53,8 +53,12 @@ summarise_gamma <- function(post, probs = c(0.025, 0.5, 0.975)) {
 #' median unit effect, % significantly positive/negative), `gamma_table`
 #' (moderator coefficients with CIs and BH q-values within each spec family),
 #' `unit_effects` (posterior mean/CI per treated unit and outcome),
-#' `event_time_ate` (Stage 1 gaps by event week). Files are streamed one
-#' outcome at a time so no two outcomes' draws are in memory together.
+#' `event_time_ate` (Stage 1 gaps by event week) and, when the Stage 2
+#' regression has more than the intercept and the treatment term (`post.f_X`),
+#' `coef_table`: the cross-unit average of every per-unit coefficient (the
+#' unit-specific trend `tau`, the held-out divergence `heldout_block`, the post
+#' windows) with its posterior interval. Files are streamed one outcome at a
+#' time so no two outcomes' draws are in memory together.
 #' @param run A `bsc_run` with post results.
 #' @param formats Subset of `c("csv", "html", "tex")`; default from the spec.
 #' @return list of the tables, invisibly.
@@ -65,10 +69,15 @@ summarise_run <- function(run, formats = NULL) {
   files <- file.path(run$dir, "post", paste0(run$spec$post$outcomes, ".rds"))
   files <- files[file.exists(files)]
   if (!length(files)) stop("no post results in ", run$dir, call. = FALSE)
-  out_rows <- list(); gam_rows <- list(); unit_rows <- list()
+  out_rows <- list(); gam_rows <- list(); unit_rows <- list(); coef_rows <- list()
   for (f in files) {
     o <- sub("\\.rds$", "", basename(f)); res <- readRDS(f)
     tdr <- extract_tau_draws(res$post, res$gdata_light)
+    Xc <- res$gdata_light$Xcols; K <- length(Xc); J0 <- res$gdata_light$J0; B <- res$post$beta_samples
+    if (K > 2L && ncol(B) == K * J0) coef_rows[[o]] <- data.table::rbindlist(lapply(seq_len(K), function(k) {
+      cbind(data.table::data.table(outcome = o, term = Xc[k], is_treatment = k == res$gdata_light$intX, n_treated = J0),
+            summarise_ate(B[, (seq_len(J0) - 1L) * K + k, drop = FALSE]))
+    }))
     u <- summarise_unit_effects(tdr); a <- summarise_ate(tdr)
     out_rows[[o]] <- cbind(data.table::data.table(outcome = o, n_treated = ncol(tdr)), a,
       data.table::data.table(effect_dispersion = stats::sd(u$mean), median_tau_unit = stats::median(u$mean),
@@ -88,7 +97,9 @@ summarise_run <- function(run, formats = NULL) {
     gamma_table[, q_bh := stats::p.adjust(p_approx, method = "BH"), by = family]
   }
   et <- tryCatch(sc_event_time_ate(readRDS(file.path(run$dir, "sc_fit.rds"))), error = function(e) NULL)
-  tabs <- list(outcome_table = outcome_table, gamma_table = gamma_table, unit_effects = unit_effects, event_time_ate = et)
+  coef_table <- if (length(coef_rows)) data.table::rbindlist(coef_rows) else NULL
+  if (!is.null(coef_table)) coef_table[, family := .family_of(outcome, fam)]
+  tabs <- list(outcome_table = outcome_table, gamma_table = gamma_table, unit_effects = unit_effects, event_time_ate = et, coef_table = coef_table)
   for (nm in names(tabs)) if (!is.null(tabs[[nm]])) {
     data.table::fwrite(tabs[[nm]], file.path(td, paste0(nm, ".csv")))
     if (nm %in% c("outcome_table", "gamma_table")) write_table_formats(tabs[[nm]], file.path(td, nm), formats, run$spec$tables$digits)

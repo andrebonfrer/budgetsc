@@ -4,7 +4,7 @@
 \alias{sc_backend_stub}
 \title{Stub backend: equal donor weights, gaps = treated minus donor mean}
 \usage{
-sc_backend_stub(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL)
+sc_backend_stub(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL, donors_list = NULL)
 }
 \arguments{
 \item{Y_list, treat_time, unit_ids}{As in \code{augMultiSynth::multiout_synth()}.}

@@ -7,13 +7,45 @@
 
 #' Define the analysis sample for a run
 #'
+#' Designs: `later_adopters` (treated = adopters in the cohort window, donors =
+#' setters adopting after launch + H), `partial_onboarders` / `non_onboarders`
+#' (donor pools 1 / 2), `placebo_dates` (a base design with shifted onsets) and,
+#' from 0.6.0, `two_launch`: treated = pilot-period adopters (first budget on or
+#' after the pilot start and before the public launch), donors = public-launch
+#' adopters, who have no access to the feature before the public launch and are
+#' therefore untreated throughout the part of every treated unit's post window
+#' that lies before it. Post weeks on or after the public launch are masked in the
+#' post stage (`window$mask_wID`); treated units with fewer than
+#' `sample.two_launch$min_post` (default 8) unmasked post weeks are dropped. Donors
+#' keep their real adoption week in `real_onset_wID`, which `fit_sc()` uses for
+#' the relative-adoption-week band (`sc.donor_band`). Use `sample.n_lags` no larger
+#' than the weeks of data before the pilot start (timeline `n_lags_pilot`).
+#'
+#' From 0.6.0 also `onboarding_intent` (helper [spec_onboarding_intent()]): among
+#' customers who began onboarding, treated = adopters who set a budget within
+#' `sample.onboarding_intent$max_lag_days` (default 7) of their first onboarding;
+#' donors = partial onboarders (donor code 1) and adopters who set a budget more
+#' than `late_min_days` (default 56) after onboarding, the latter keeping their
+#' real adoption week. Adopters in between are excluded. Needs a per-customer
+#' `onboard_wID` column (and optionally `onboard_lag_days`). With `sc.donor_band`,
+#' donors are restricted to those whose first onboarding falls within the band of
+#' the treated unit's, and late adopters must adopt after its post window.
+#'
+#' Cohort membership and donor/treated roles are decided on the REAL first-budget
+#' date. For `placebo_dates` with `units = "treated"` only the units that are
+#' treated in the base design have their onset shifted; later adopters keep their
+#' real dates and remain donors (before 0.6.0 the cohort filter was applied to the
+#' shifted dates, which dropped real adopters and promoted later adopters to
+#' pseudo-treated).
+#'
 #' @param p Panel after [derive_outcomes()] and [derive_moderators()].
 #' @param spec A `bsc_spec`.
 #' @return A list of class `bsc_sample`: `ids` (customer_id, role, cohort,
-#'   treat_wID, minBudgetDate), `window` (L, H, match_end, launch_wID,
-#'   truncate_wID, launch_date), `funnel` (data.table of filter steps and
-#'   counts), and `panel` (rows for the kept customers, with `budgetdummy`
-#'   and `donor` recoded for the design).
+#'   treat_wID, minBudgetDate, real_onset_wID), `window` (L, H, match_end,
+#'   launch_wID, truncate_wID, launch_date, public_launch_wID, mask_wID: NA unless
+#'   `two_launch`), `funnel` (data.table of filter steps and counts), and `panel`
+#'   (rows for the kept customers, with `budgetdummy` and `donor` recoded for the
+#'   design).
 #' @export
 define_sample <- function(p, spec) {
   data.table::setDT(p)
@@ -29,31 +61,61 @@ define_sample <- function(p, spec) {
   if (!"minBudgetDate" %in% names(x)) stop("panel lacks minBudgetDate", call. = FALSE)
   x[, minBudgetDate := as.Date(minBudgetDate)]
   if (!"donor" %in% names(x)) x[, donor := 0L]
+  x[, real_minBudgetDate := minBudgetDate]      # cohorts and roles are decided on the REAL date; placebo designs rewrite minBudgetDate only
+  public_launch <- tl$events$public_launch
+  public_launch_wID <- first_week_on_or_after(public_launch, tl$origin)
 
-  # ---- placebo designs: rewrite minBudgetDate, then proceed as the base design ------
+  # ---- placebo designs: rewrite minBudgetDate for the base design's treated units, then proceed as the base design ------
   placebo_info <- NULL
   if (design == "placebo_dates") {
     pl <- s$placebo
     if (is.null(pl$base_design)) stop("sample.placebo$base_design is required for placebo_dates", call. = FALSE)
-    x <- .apply_placebo(x, pl, tl, H)
+    x <- .apply_placebo(x, pl, tl, H, cohort = cohort)
     placebo_info <- attr(x, "placebo_info")
     note(paste0("placebo: ", pl$units %||% "treated", ", shift ", pl$shift %||% NA), x$customer_id)
     design <- pl$base_design
   }
 
   # ---- cohort restriction and launch date ---------------------------------------
-  public_launch <- tl$events$public_launch
-  if (cohort == "public") {
-    pre_launch_setters <- x[minBudgetDate < public_launch, unique(customer_id)]
+  mask_wID <- NA_integer_
+  if (design == "onboarding_intent") {
+    if (!"onboard_wID" %in% names(x))
+      stop("design 'onboarding_intent' needs a per-customer onboard_wID column (first onboarding week); build the panel with onboarding dates", call. = FALSE)
+    oi <- s$onboarding_intent %||% list()
+    max_lag <- as.numeric(oi$max_lag_days %||% 7); late_min <- as.numeric(oi$late_min_days %||% 56)
+    x <- x[donor %in% c(0L, 1L)]
+    note("adopters and partial onboarders (onboarding-intent design)", x$customer_id)
+    x <- x[!is.na(onboard_wID)]
+    note("with a first-onboarding week", x$customer_id)
+    if ("onboard_lag_days" %in% names(x)) x[, lag_ := as.numeric(onboard_lag_days)]
+    else x[, lag_ := 7 * (week_of(real_minBudgetDate, tl$origin) - onboard_wID)]
+    x[, intent_role := data.table::fcase(donor == 1L, "donor",
+                                         !is.na(real_minBudgetDate) & lag_ <= max_lag, "treated",
+                                         !is.na(real_minBudgetDate) & lag_ > late_min, "donor",
+                                         default = "excluded")]
+    x <- x[intent_role != "excluded"]
+    note(sprintf("treated: adopted within %g days of first onboarding; donors: partial onboarders and adopters more than %g days after onboarding", max_lag, late_min), x$customer_id)
+    first_tr <- x[intent_role == "treated", min(week_of(real_minBudgetDate, tl$origin))]
+    launch_date <- tl$origin + 7L * (first_tr - 1L)
+  } else if (design == "two_launch") {
+    pilot_start <- tl$events$pilot_start %||% x[real_minBudgetDate < public_launch, min(real_minBudgetDate, na.rm = TRUE)]
+    x <- x[donor == 0L]                                   # budget setters only: pilot adopters (treated) and public-launch adopters (donors)
+    note("budget setters only (two-launch design)", x$customer_id)
+    x <- x[!is.na(real_minBudgetDate) & real_minBudgetDate >= pilot_start]
+    note("first budget on or after the pilot start", x$customer_id)
+    launch_date <- pilot_start
+    mask_wID <- public_launch_wID                         # treated post weeks from here on are masked (donors gain access)
+  } else if (cohort == "public") {
+    pre_launch_setters <- x[real_minBudgetDate < public_launch, unique(customer_id)]
     x <- x[!customer_id %in% pre_launch_setters]
     launch_date <- public_launch
     note("drop pilot-period budget setters", x$customer_id)
   } else {
-    public_setters <- x[minBudgetDate >= public_launch, unique(customer_id)]
+    public_setters <- x[real_minBudgetDate >= public_launch, unique(customer_id)]
     x <- x[!customer_id %in% public_setters]
     if (design %in% c("partial_onboarders", "non_onboarders") && "onboarddate" %in% names(x))
       x <- x[!customer_id %in% x[as.Date(onboarddate) >= public_launch, unique(customer_id)]]
-    launch_date <- x[, min(minBudgetDate, na.rm = TRUE)]   # first observed pilot adoption
+    launch_date <- x[, min(real_minBudgetDate, na.rm = TRUE)]   # first observed pilot adoption
     note("drop public-launch budget setters", x$customer_id)
   }
   launch_wID   <- first_week_on_or_after(launch_date, tl$origin)
@@ -66,14 +128,29 @@ define_sample <- function(p, spec) {
     x <- x[donor == 0L]                                   # budget setters only
     note("budget setters only", x$customer_id)
     x[, donor := 0L]
-    x[, real_onset_date := minBudgetDate]                 # a later adopter keeps its REAL adoption date (per-unit donor eligibility)
-    x[minBudgetDate >= truncate_date, minBudgetDate := as.Date(NA)]   # later adopters -> donors
+    x[, real_onset_date := real_minBudgetDate]            # a later adopter keeps its REAL adoption date (per-unit donor eligibility)
+    x[real_minBudgetDate >= truncate_date, minBudgetDate := as.Date(NA)]   # later adopters -> donors (decided on the real date)
     x[is.na(minBudgetDate), donor := 1L]
+  } else if (design == "two_launch") {
+    x[, donor := 0L]
+    x[, real_onset_date := real_minBudgetDate]
+    x[real_minBudgetDate >= public_launch, `:=`(minBudgetDate = as.Date(NA), donor = 1L)]   # public-launch adopters: donors
+    note("pilot adopters treated; public-launch adopters donors", x$customer_id)
+    min_post <- as.integer(s$two_launch$min_post %||% 8L)
+    late <- x[donor == 0L & week_of(minBudgetDate, tl$origin) > mask_wID - min_post, unique(customer_id)]
+    x <- x[!customer_id %in% late]
+    note(sprintf("treated with >= %d post weeks before the public launch", min_post), x$customer_id)
+  } else if (design == "onboarding_intent") {
+    # late adopters keep their REAL adoption date so fit_sc() can require it to fall after each treated unit's post window
+    x[, real_onset_date := data.table::fifelse(intent_role == "donor" & !is.na(real_minBudgetDate), real_minBudgetDate, as.Date(NA))]
+    x[intent_role == "donor", minBudgetDate := as.Date(NA)]
+    x[, donor := data.table::fifelse(intent_role == "treated", 0L, 1L)]
+    x[, c("intent_role", "lag_") := NULL]
   } else if (design %in% c("partial_onboarders", "non_onboarders")) {
     want <- if (design == "partial_onboarders") 1L else 2L
     x <- x[donor %in% c(0L, want)]
     note(paste0("budget setters + donor pool ", want), x$customer_id)
-    x[donor == 0L & minBudgetDate >= truncate_date, donor := 3L]   # setters after window: excluded
+    x[donor == 0L & real_minBudgetDate >= truncate_date, donor := 3L]   # setters after window: excluded
     x <- x[donor != 3L]
     x[donor == want, donor := 1L]
     note("drop setters adopting after launch + H", x$customer_id)
@@ -141,7 +218,8 @@ define_sample <- function(p, spec) {
   }
 
   # ---- ids and treatment weeks ------------------------------------------------------
-  ids <- unique(x[, .(customer_id, donor, minBudgetDate, treat_wID, real_onset_date)])
+  ids <- unique(x[, intersect(c("customer_id", "donor", "minBudgetDate", "treat_wID", "real_onset_date", "onboard_wID"), names(x)), with = FALSE])
+  if (anyDuplicated(ids$customer_id)) stop("onboard_wID must be constant within customer", call. = FALSE)
   ids[, role := data.table::fifelse(donor == 0L, "treated", "donor")]
   ids[, cohort := cohort]
   ids[, real_onset_wID := week_of(real_onset_date, tl$origin) +
@@ -155,10 +233,12 @@ define_sample <- function(p, spec) {
   }
   ids[, c("donor", "minBudgetDate") := list(NULL, minBudgetDate)]
 
+  x[, real_minBudgetDate := NULL]
   structure(list(
-    ids = ids[, .(customer_id, role, cohort, treat_wID, minBudgetDate, real_onset_wID)],
+    ids = ids[, intersect(c("customer_id", "role", "cohort", "treat_wID", "minBudgetDate", "real_onset_wID", "onboard_wID"), names(ids)), with = FALSE],
     window = list(L = L, H = H, match_end = as.integer(spec$sc$match_end),
-                  launch_date = launch_date, launch_wID = launch_wID, truncate_wID = truncate_wID),
+                  launch_date = launch_date, launch_wID = launch_wID, truncate_wID = truncate_wID,
+                  public_launch_wID = public_launch_wID, mask_wID = mask_wID),
     funnel = data.table::rbindlist(funnel),
     placebo = placebo_info,
     panel = x
@@ -169,18 +249,24 @@ define_sample <- function(p, spec) {
 #   units = "treated": each real adopter's onset is moved `shift` weeks earlier
 #     (pre-adoption placebo). shift must exceed H so the placebo post window ends
 #     before the real adoption; treated units without L pre-weeks before the
-#     pseudo onset are dropped later by the usual window check.
+#     pseudo onset are dropped later by the usual window check. Only the units
+#     that are treated in the base design (adoption inside the cohort's window
+#     [launch, launch + H)) are shifted; later adopters keep their real dates.
 #   units = "never_onboarders": customers with donor == 2 receive pseudo onsets
 #     drawn (with replacement, `seed`) from the real adopters' onset dates and
 #     become the "treated" group; real adopters are removed so the base design's
 #     donor rule applies to the remaining pool.
-.apply_placebo <- function(x, pl, tl, H) {
+.apply_placebo <- function(x, pl, tl, H, cohort = "public") {
   units <- pl$units %||% "treated"
   if (units == "treated") {
     shift <- as.integer(pl$shift %||% (H + 1L))
     if (shift <= H) stop("sample.placebo$shift must exceed n_leads so the placebo window precedes real adoption.", call. = FALSE)
-    x[!is.na(minBudgetDate) & donor == 0L, minBudgetDate := minBudgetDate - 7L * shift]
-    info <- list(units = units, shift = shift)
+    public_launch <- tl$events$public_launch
+    launch <- if (identical(cohort, "public")) public_launch else x[!is.na(minBudgetDate) & minBudgetDate < public_launch, min(minBudgetDate, na.rm = TRUE)]
+    upper  <- if (identical(cohort, "public")) launch + 7L * H else min(launch + 7L * H, public_launch)
+    is_base_treated <- !is.na(x$minBudgetDate) & x$donor == 0L & x$minBudgetDate >= launch & x$minBudgetDate < upper
+    x[is_base_treated, minBudgetDate := minBudgetDate - 7L * shift]
+    info <- list(units = units, shift = shift, n_shifted = data.table::uniqueN(x$customer_id[is_base_treated]))
   } else if (units == "never_onboarders") {
     real <- unique(x[!is.na(minBudgetDate) & donor == 0L, .(customer_id, minBudgetDate)])
     if (!nrow(real)) stop("no real adopters to draw pseudo onsets from", call. = FALSE)
@@ -198,6 +284,7 @@ define_sample <- function(p, spec) {
     far <- max(real$minBudgetDate, na.rm = TRUE) + 7L * (H + 2L)
     x[donor == 2L, `:=`(minBudgetDate = far, donor = 0L)]
     x <- x[donor == 0L]                                        # partial onboarders play no part
+    if ("real_minBudgetDate" %in% names(x)) x[, real_minBudgetDate := minBudgetDate]   # pseudo onsets ARE the roles in this design
     info <- list(units = units, n = n_take, seed = pl$seed %||% 1L, far_onset = far)
   } else stop("sample.placebo$units must be 'treated' or 'never_onboarders'", call. = FALSE)
   data.table::setattr(x, "placebo_info", info)
@@ -243,7 +330,7 @@ print.bsc_sample <- function(x, ...) {
   invisible(x)
 }
 
-utils::globalVariables(c("real_onset_date", "real_onset_wID", "i.pseudo", "pseudo", "minBudgetDate", "donor", "onboarddate", "budgetdummy", "pre_weeks",
+utils::globalVariables(c("real_onset_date", "real_onset_wID", "real_minBudgetDate", "onboard_wID", "onboard_lag_days", "intent_role", "lag_", "i.pseudo", "pseudo", "minBudgetDate", "donor", "onboarddate", "budgetdummy", "pre_weeks",
   "pre_spend_sum", "pre_income_sum", "pre_spend_pct_income", "budgetcategoriesN", "n_cats",
   "treat_wID", "real_onset_date", "real_onset_wID", "spend_mean", "spend_pct_income", "has_homeloan", "log_spend_mean", "str_sp",
   "str_ls", "strata", "share", "n_target", "i.n_target", "N", "cohort"))
