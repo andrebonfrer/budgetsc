@@ -182,6 +182,10 @@ post_backend_gap <- function(p, scfit, outcome, spec, lock = NULL) {
     n0 <- nrow(dta); dta <- dta[!(tau >= 0L & wID_cal >= mask)]
     if (!is.null(lock)) lock_heartbeat(lock)
     message(sprintf("two_launch: %d treated post weeks on/after the public launch (wID %d) masked", n0 - nrow(dta), mask))
+    ## Masking leaves units with different last weeks. The moderator matrix (here and in prepare_data_general()) is read from each
+    ## unit's row in the LAST week of the time index, so re-index time to END at the same value for every unit: each unit's last
+    ## retained week becomes L + H + 1. The index is only a row label for Stage 2 (event time enters through `tau`).
+    dta[, wID := wID - max(wID) + (L + H + 1L), by = customer_id]
   }
   drop_ids <- .incomplete_moderator_units(dta, spec$post$f_Z)
   if (length(drop_ids)) dta <- dta[!customer_id %in% drop_ids]

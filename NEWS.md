@@ -1,3 +1,10 @@
+# budgetsc 0.6.1
+
+* **Fix, two-launch design only:** `post_backend_gap()` dropped almost every treated unit after masking post weeks at the
+  public launch. The moderator matrix is read from each unit's row in the last week of the Stage 2 time index, and after
+  masking only the earliest adopters still had that row. The time index is now re-based per unit so that every unit's last
+  retained week is the final index. Other designs are unaffected (no masking, so the index is unchanged).
+
 # budgetsc 0.6.0
 
 The reviewers' two-launch identification design, a richer per-unit Stage 2, and a placebo fix. Existing specs,
