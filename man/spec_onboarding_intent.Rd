@@ -24,8 +24,7 @@ began onboarding the budgeting feature, treated = adopters who set a budget
 within \code{max_lag_days} of their first onboarding, donors = partial onboarders
 (never set a budget) and adopters who set one more than \code{late_min_days} after
 onboarding (untreated over the weeks used). With \code{band}, each treated unit's
-donors began onboarding within +/- \code{band} weeks of it (\code{sc.donor_band_on =
-"onboard"}), so twins are drawn from customers who sought the tool at the same
+donors began onboarding within +/- \code{band} weeks of it (\code{sc.donor_band_on = "onboard"}), so twins are drawn from customers who sought the tool at the same
 time and, through the matching, followed the same pre-onboarding trajectory.
 The panel must carry a per-customer \code{onboard_wID} (first onboarding week) and
 may carry \code{onboard_lag_days}.

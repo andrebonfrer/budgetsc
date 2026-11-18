@@ -25,7 +25,13 @@ sc_backend_augmultisynth(
 \item{treated_units}{Optional integer indices of the treated units. When given, units with a finite \code{treat_time} that are not listed are donors that adopt later, and augMultiSynth's eligibility rule applies per treated unit.}
 
 \item{donors_list}{Optional per-unit candidate donor sets (list keyed by treated unit id, unit indices), passed to
-\code{multiout_synth(donors_list = )} (augMultiSynth >= 0.3.6).}
+\code{multiout_synth(donors_list = )} (augMultiSynth >= 0.3.6).
+
+Optional \code{sc} keys (absent = the installed package's defaults, so older specs are unaffected):
+\code{fw_tol}, \code{fw_max_iter} (solver tolerance and iteration cap, augMultiSynth >= 0.3.8); \code{augment = "ridge"}
+(ridge-augmented weights, augMultiSynth >= 0.3.9), \code{augment_lambda} (relative penalty; \code{NULL} = chosen by
+\code{augMultiSynth::tune_augment()} using the same donor pools as the fit) and \code{augment_tune} (a list of further
+arguments for the tuning, e.g. \code{h}, \code{grid}, \code{tune_units}).}
 }
 \value{
 Fit object satisfying the contract in \code{sc.R}.
