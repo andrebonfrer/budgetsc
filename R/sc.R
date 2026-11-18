@@ -175,6 +175,29 @@ fit_sc <- function(run, backend = NULL) {
   fit$outcomes <- outcomes; fit$L <- L; fit$K <- H; fit$match_end <- me
   fit$treat_time <- tt; fit$unit_ids <- Yprep$unit_vals
   fit$weights_mat <- sc_weight_matrix(fit, Yprep$unit_vals)
+  ## which solver produced these weights, and did it converge (augMultiSynth >= 0.3.8 reports this per unit)
+  fit$augmultisynth_version <- tryCatch(as.character(utils::packageVersion("augMultiSynth")), error = function(e) NA_character_)
+  td <- file.path(run$dir, "tables")
+  if (is.data.frame(fit$fw_diagnostics) && nrow(fit$fw_diagnostics)) {
+    dir.create(td, showWarnings = FALSE)
+    d <- data.table::as.data.table(fit$fw_diagnostics); d[, customer_id := as.character(Yprep$unit_vals[treated_unit])]
+    data.table::fwrite(d, file.path(td, "sc_fw_diagnostics.csv"))
+    bsc_log(run, sprintf("weight solver (augMultiSynth %s): %d of %d units converged; largest relative duality gap %.2g",
+                         fit$augmultisynth_version, sum(d$converged), nrow(d), max(d$rel_gap)))
+  } else bsc_log(run, "weight solver: augMultiSynth ", fit$augmultisynth_version, " reports no convergence diagnostics (before 0.3.8, weights may not be converged)")
+  if (!is.null(fit$augment)) {
+    dir.create(td, showWarnings = FALSE)
+    if (is.data.frame(fit$augment$diagnostics)) {
+      d <- data.table::as.data.table(fit$augment$diagnostics); d[, customer_id := as.character(Yprep$unit_vals[treated_unit])]
+      data.table::fwrite(d, file.path(td, "sc_augment_diagnostics.csv"))
+      num <- function(v) if (v %in% names(d)) mean(d[[v]], na.rm = TRUE) else NA_real_
+      bsc_log(run, sprintf("ridge augmentation: relative penalty %s; mean pre-period RMSE %.4g -> %.4g; mean negative weight mass %.3g",
+                           format(fit$augment$lambda), num("pre_rmse_scm"), num("pre_rmse_aug"), num("neg_mass")))
+    }
+    if (is.data.frame(fit$augment$tuning$summary)) data.table::fwrite(fit$augment$tuning$summary, file.path(td, "sc_augment_tuning.csv"))
+    if (length(fit$augment$lambda) == 1L && is.infinite(fit$augment$lambda))
+      bsc_log(run, "ridge augmentation: tuning chose no augmentation (penalty Inf); weights equal the simplex weights")
+  }
   treated_idx <- match(as.character(fit$treated_unit_ids), as.character(Yprep$unit_vals))   # the units actually fitted, in fit order
   out <- list(fit = fit, time_vals = Yprep$time_vals, unit_vals = Yprep$unit_vals,
               treat_time = tt, treated_idx = treated_idx, donor_eligibility = elig,
@@ -198,6 +221,12 @@ fit_sc <- function(run, backend = NULL) {
 #' @param treated_units Optional integer indices of the treated units. When given, units with a finite `treat_time` that are not listed are donors that adopt later, and augMultiSynth's eligibility rule applies per treated unit.
 #' @param donors_list Optional per-unit candidate donor sets (list keyed by treated unit id, unit indices), passed to
 #'   `multiout_synth(donors_list = )` (augMultiSynth >= 0.3.6).
+#'
+#' Optional `sc` keys (absent = the installed package's defaults, so older specs are unaffected):
+#' `fw_tol`, `fw_max_iter` (solver tolerance and iteration cap, augMultiSynth >= 0.3.8); `augment = "ridge"`
+#' (ridge-augmented weights, augMultiSynth >= 0.3.9), `augment_lambda` (relative penalty; `NULL` = chosen by
+#' `augMultiSynth::tune_augment()` using the same donor pools as the fit) and `augment_tune` (a list of further
+#' arguments for the tuning, e.g. `h`, `grid`, `tune_units`).
 #' @return Fit object satisfying the contract in `sc.R`.
 #' @export
 sc_backend_augmultisynth <- function(Y_list, treat_time, unit_ids, L, K, spec, treated_units = NULL, donors_list = NULL) {
@@ -233,7 +262,29 @@ sc_backend_augmultisynth <- function(Y_list, treat_time, unit_ids, L, K, spec, t
     args$donors_list <- donors_list
   }
   args <- args[names(args) %in% fm]
-  do.call(augMultiSynth::multiout_synth, args)
+  ## Solver controls (augMultiSynth >= 0.3.8) and ridge augmentation (>= 0.3.9). Optional spec keys: when absent the
+  ## installed package's defaults apply and no argument is passed, so existing specs keep their ids.
+  for (k in c("fw_tol", "fw_max_iter")) if (!is.null(sc[[k]])) {
+    if (!k %in% fm) stop("sc.", k, " needs augMultiSynth >= 0.3.8 (converged Frank-Wolfe solver).", call. = FALSE)
+    args[[k]] <- sc[[k]]
+  }
+  aug <- sc$augment %||% "none"; tuning <- NULL
+  if (!identical(aug, "none")) {
+    if (!"augment" %in% fm) stop("sc.augment = '", aug, "' needs augMultiSynth >= 0.3.9.", call. = FALSE)
+    lam <- sc$augment_lambda
+    if (is.null(lam)) {
+      ## choose the penalty here, not inside multiout_synth(), so the placebo forecasts use the SAME donor pools as
+      ## the fit (donors_list for the banded designs, treated_units for per-unit eligibility)
+      targs <- args[setdiff(names(args), c("Y_list", "treat_time", "L", "K", "treated_units"))]
+      tuning <- do.call(augMultiSynth::tune_augment, c(list(Y_list = Y_list, treat_time = treat_time, L = L, K = K, treated_units = treated_units),
+                                                       sc$augment_tune %||% list(), targs))
+      lam <- tuning$lambda
+    }
+    args$augment <- aug; args$augment_lambda <- lam
+  }
+  fit <- do.call(augMultiSynth::multiout_synth, args)
+  if (!is.null(tuning)) fit$augment$tuning <- tuning
+  fit
 }
 
 #' Donor weights as a J0 x N matrix from a fit
@@ -374,4 +425,4 @@ sc_diagnostics <- function(run) {
   invisible(list(pretrend = pre, fit_summary = fs, unit_gaps = ug, pre_slope = sl))
 }
 
-utils::globalVariables(c("tau_k", "matched", "window", "mean_gap", "rmspe", "outcome", "customer_id"))
+utils::globalVariables(c("tau_k", "matched", "window", "mean_gap", "rmspe", "outcome", "customer_id", "treated_unit"))

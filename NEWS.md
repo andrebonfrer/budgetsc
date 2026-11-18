@@ -1,3 +1,21 @@
+# budgetsc 0.6.2
+
+Support for augMultiSynth 0.3.8 (converged weight solver) and 0.3.9 (ridge augmentation). Existing specs, run ids and
+results are unchanged: every new field is optional and nothing is passed to augMultiSynth when it is absent.
+
+* **`sc.augment = "ridge"`**, `sc.augment_lambda`, `sc.augment_tune`: ridge-augmented synthetic control
+  (`augMultiSynth::multiout_synth(augment = "ridge")`). When `sc.augment_lambda` is `NULL` the penalty is chosen by
+  `augMultiSynth::tune_augment()` called from budgetsc with the fit's own donor pools (the donor band of the two-launch
+  and onboarding-intent designs, per-unit eligibility), which the tuning inside `multiout_synth()` does not receive.
+  Writes `tables/sc_augment_diagnostics.csv` and `tables/sc_augment_tuning.csv`.
+* **`sc.fw_tol`, `sc.fw_max_iter`**: solver tolerance and iteration cap.
+* `fit_sc()` records the augMultiSynth version in the fit (`fit$augmultisynth_version`) and the log, and writes per-unit
+  convergence to `tables/sc_fw_diagnostics.csv` when the installed augMultiSynth reports it.
+* The gap-based Stage 2 (`post.backend = "scmbayes_gap"`) needs no change for augmented (possibly negative) weights. The
+  raw-outcome backend stops with a clear message unless scmBayesPost >= 0.4.9 is installed.
+* **A run id does not depend on the installed package versions.** A finished run is not refitted after an upgrade; to
+  refit with the converged solver register a copy whose spec differs (for example `sc.fw_tol = 1e-8`).
+
 # budgetsc 0.6.1
 
 * **Fix, two-launch design only:** `post_backend_gap()` dropped almost every treated unit after masking post weeks at the

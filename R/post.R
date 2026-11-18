@@ -91,6 +91,9 @@ post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
   # post sample (units left out for missing moderators are treated, never donors,
   # so no remaining unit loses weight)
   W <- scmBayesPost::build_W_from_augMultiSynth(scfit$fit, id_universe = as.character(scfit$unit_vals), self_weight = 1)
+  if (any(W < 0) && utils::packageVersion("scmBayesPost") < "0.4.9")
+    stop("the SC weights are augmented (some are negative); the raw-outcome backend needs scmBayesPost >= 0.4.9. ",
+         "Use post.backend = 'scmbayes_gap', which works on the gap series and accepts any weights.", call. = FALSE)
   in_p <- as.character(unique(p$customer_id)); tr_in_p <- as.character(unique(p$customer_id[p$budgetdummy == 1L]))
   W <- W[rownames(W) %in% in_p, colnames(W) %in% tr_in_p, drop = FALSE]
   args <- list(
