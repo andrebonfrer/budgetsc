@@ -91,6 +91,9 @@ post_backend_scmbayes <- function(p, scfit, outcome, spec, lock = NULL) {
   # post sample (units left out for missing moderators are treated, never donors,
   # so no remaining unit loses weight)
   W <- scmBayesPost::build_W_from_augMultiSynth(scfit$fit, id_universe = as.character(scfit$unit_vals), self_weight = 1)
+  if (any(W < 0) && utils::packageVersion("scmBayesPost") < "0.4.9")
+    stop("the SC weights are augmented (some are negative); the raw-outcome backend needs scmBayesPost >= 0.4.9. ",
+         "Use post.backend = 'scmbayes_gap', which works on the gap series and accepts any weights.", call. = FALSE)
   in_p <- as.character(unique(p$customer_id)); tr_in_p <- as.character(unique(p$customer_id[p$budgetdummy == 1L]))
   W <- W[rownames(W) %in% in_p, colnames(W) %in% tr_in_p, drop = FALSE]
   args <- list(
@@ -182,6 +185,10 @@ post_backend_gap <- function(p, scfit, outcome, spec, lock = NULL) {
     n0 <- nrow(dta); dta <- dta[!(tau >= 0L & wID_cal >= mask)]
     if (!is.null(lock)) lock_heartbeat(lock)
     message(sprintf("two_launch: %d treated post weeks on/after the public launch (wID %d) masked", n0 - nrow(dta), mask))
+    ## Masking leaves units with different last weeks. The moderator matrix (here and in prepare_data_general()) is read from each
+    ## unit's row in the LAST week of the time index, so re-index time to END at the same value for every unit: each unit's last
+    ## retained week becomes L + H + 1. The index is only a row label for Stage 2 (event time enters through `tau`).
+    dta[, wID := wID - max(wID) + (L + H + 1L), by = customer_id]
   }
   drop_ids <- .incomplete_moderator_units(dta, spec$post$f_Z)
   if (length(drop_ids)) dta <- dta[!customer_id %in% drop_ids]

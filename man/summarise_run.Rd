@@ -15,7 +15,7 @@ summarise_run(run, formats = NULL)
 list of the tables, invisibly.
 }
 \description{
-Writes to \code{tables/}: \code{outcome_table} (ATE mean/median/CI, dispersion,
+Writes to \verb{tables/}: \code{outcome_table} (ATE mean/median/CI, dispersion,
 median unit effect, \% significantly positive/negative), \code{gamma_table}
 (moderator coefficients with CIs and BH q-values within each spec family),
 \code{unit_effects} (posterior mean/CI per treated unit and outcome),

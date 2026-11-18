@@ -23,7 +23,7 @@ list(post, gdata_light).
 \description{
 Stage 2 on the gap series instead of the raw outcomes. For each treated unit
 the outcome is replaced by (unit outcome - weighted donor outcome) in the same
-calendar week, over the window \code{T - L .. T + H}, indexed by event time, and
+calendar week, over the window \verb{T - L .. T + H}, indexed by event time, and
 the unit is regressed on the right-hand side of \code{post.f_X} (default
 \code{~ 1 + budgetdummy}, the behaviour before 0.6.0). The hierarchical shrinkage
 and the moderator regression are those of \code{\link[=post_backend_scmbayes]{post_backend_scmbayes()}}; the
